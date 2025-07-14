@@ -29,6 +29,14 @@ pub fn build(b: *std.Build) void {
     // to our consumers. We must give it a name because a Zig package can expose
     // multiple modules and consumers will need to be able to specify which
     // module they want to access.
+
+    // Add zsync dependency
+    const zsync_dep = b.dependency("zsync", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const zsync = zsync_dep.module("zsync");
+
     const mod = b.addModule("flash", .{
         // The root source file is the "entry point" of this module. Users of
         // this module will only be able to access public declarations contained
@@ -40,6 +48,9 @@ pub fn build(b: *std.Build) void {
         // Later on we'll use this module as the root module of a test executable
         // which requires us to specify a target.
         .target = target,
+        .imports = &.{
+            .{ .name = "zsync", .module = zsync },
+        },
     });
 
     // Here we define an executable. An executable needs to have a root module

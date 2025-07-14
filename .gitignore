@@ -2,3 +2,5 @@
 /zig-out/
 *.o
 *.exe
+.zig-cache
+
