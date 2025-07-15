@@ -32,11 +32,18 @@ pub const Prompts = @import("prompts.zig");
 pub const Validation = @import("validation.zig");
 pub const Progress = @import("progress.zig");
 pub const Colors = @import("colors.zig");
+pub const Declarative = @import("declarative.zig");
+pub const Validators = @import("validators.zig");
+pub const Config = @import("config.zig");
+pub const Security = @import("security.zig");
 
 // Convenience functions for declarative CLI building
 pub const cmd = Command.init;
 pub const arg = Argument.init;
 pub const flag = Flag.init;
+pub const parse = Declarative.parse;
+pub const parseWithConfig = Declarative.parseWithConfig;
+pub const derive = Declarative.derive;
 
 // Version information
 pub const version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };

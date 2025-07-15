@@ -132,6 +132,74 @@ pub const Context = struct {
         return self.flags.contains(name);
     }
 
+    /// Get a string array argument value
+    pub fn getStringArray(self: Context, name: []const u8, allocator: std.mem.Allocator) !?[][]const u8 {
+        // Check if we have multiple values stored for this name
+        if (self.values.get(name)) |value| {
+            switch (value) {
+                .string => |s| {
+                    // Single string value - return as array of one element
+                    const result = try allocator.alloc([]const u8, 1);
+                    result[0] = s;
+                    return result;
+                },
+                .array => |array| {
+                    // Multiple string values
+                    const result = try allocator.alloc([]const u8, array.len);
+                    for (array, 0..) |item, i| {
+                        result[i] = item.asString();
+                    }
+                    return result;
+                },
+                else => return null,
+            }
+        }
+        
+        // Check if we have it as a string that needs to be split
+        if (self.get(name)) |value| {
+            const str = value.asString();
+            // Split by comma for basic array support
+            var result = std.ArrayList([]const u8).init(allocator);
+            var it = std.mem.splitScalar(u8, str, ',');
+            while (it.next()) |item| {
+                const trimmed = std.mem.trim(u8, item, " \t");
+                if (trimmed.len > 0) {
+                    try result.append(trimmed);
+                }
+            }
+            return result.toOwnedSlice();
+        }
+        
+        return null;
+    }
+    
+    /// Add a value to an array argument
+    pub fn addArrayValue(self: *Context, name: []const u8, value: Argument.ArgValue) !void {
+        if (self.values.get(name)) |existing| {
+            switch (existing) {
+                .array => |array| {
+                    // Add to existing array
+                    var new_array = try self.allocator.alloc(Argument.ArgValue, array.len + 1);
+                    std.mem.copy(Argument.ArgValue, new_array[0..array.len], array);
+                    new_array[array.len] = value;
+                    try self.values.put(name, Argument.ArgValue{ .array = new_array });
+                },
+                else => {
+                    // Convert single value to array
+                    const array = try self.allocator.alloc(Argument.ArgValue, 2);
+                    array[0] = existing;
+                    array[1] = value;
+                    try self.values.put(name, Argument.ArgValue{ .array = array });
+                },
+            }
+        } else {
+            // Create new array with single value
+            const array = try self.allocator.alloc(Argument.ArgValue, 1);
+            array[0] = value;
+            try self.values.put(name, Argument.ArgValue{ .array = array });
+        }
+    }
+
     /// Get a typed value with a default
     pub fn getWithDefault(self: Context, comptime T: type, name: []const u8, default: T) T {
         const arg_type = Argument.ArgType.fromType(T);
@@ -142,6 +210,7 @@ pub const Context = struct {
                 .float => @floatCast(value.asFloat()),
                 .bool => value.asBool(),
                 .@"enum" => value.asString(),
+                .array => value.asArray(),
             };
         }
         return default;

@@ -13,6 +13,7 @@ pub const ArgType = enum {
     float,
     bool,
     @"enum",
+    array,
 
     pub fn fromType(comptime T: type) ArgType {
         return switch (@typeInfo(T)) {
@@ -21,7 +22,12 @@ pub const ArgType = enum {
             .bool => .bool,
             .@"enum" => .@"enum",
             .optional => |opt| fromType(opt.child),
-            .pointer => |ptr| if (ptr.child == u8) .string else @compileError("Unsupported pointer type"),
+            .pointer => |ptr| {
+                if (ptr.child == u8) return .string;
+                if (ptr.size == .Slice) return .array;
+                @compileError("Unsupported pointer type");
+            },
+            .array => .array,
             else => @compileError("Unsupported argument type: " ++ @typeName(T)),
         };
     }
@@ -34,16 +40,23 @@ pub const ArgValue = union(ArgType) {
     float: f64,
     bool: bool,
     @"enum": []const u8, // Store as string, convert when needed
+    array: []ArgValue, // Array of values
 
     pub fn format(self: ArgValue, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt;
-        _ = options;
         switch (self) {
             .string => |s| try writer.print("'{s}'", .{s}),
             .int => |i| try writer.print("{d}", .{i}),
             .float => |f| try writer.print("{d}", .{f}),
             .bool => |b| try writer.print("{}", .{b}),
             .@"enum" => |e| try writer.print("'{s}'", .{e}),
+            .array => |a| {
+                try writer.print("[", .{});
+                for (a, 0..) |item, i| {
+                    if (i > 0) try writer.print(", ", .{});
+                    try item.format(fmt, options, writer);
+                }
+                try writer.print("]", .{});
+            },
         }
     }
 
@@ -73,6 +86,13 @@ pub const ArgValue = union(ArgType) {
         return switch (self) {
             .bool => |b| b,
             else => @panic("Value is not a boolean"),
+        };
+    }
+    
+    pub fn asArray(self: ArgValue) []ArgValue {
+        return switch (self) {
+            .array => |a| a,
+            else => @panic("Value is not an array"),
         };
     }
 };
@@ -155,8 +175,6 @@ pub const Argument = struct {
 
     /// Parse a string value into the correct type for this argument
     pub fn parseValue(self: Argument, allocator: std.mem.Allocator, input: []const u8) Error.FlashError!ArgValue {
-        _ = allocator; // May be needed for string duplication later
-
         const value = switch (self.arg_type) {
             .string => ArgValue{ .string = input },
             .int => ArgValue{ .int = std.fmt.parseInt(i64, input, 10) catch |err| switch (err) {
@@ -173,6 +191,19 @@ pub const Argument = struct {
                 }
             },
             .@"enum" => ArgValue{ .@"enum" = input },
+            .array => blk: {
+                // Parse comma-separated values
+                var result = std.ArrayList(ArgValue).init(allocator);
+                var it = std.mem.splitScalar(u8, input, ',');
+                while (it.next()) |item| {
+                    const trimmed = std.mem.trim(u8, item, " \t");
+                    if (trimmed.len > 0) {
+                        // Parse each item as a string by default
+                        try result.append(ArgValue{ .string = trimmed });
+                    }
+                }
+                break :blk ArgValue{ .array = try result.toOwnedSlice() };
+            },
         };
 
         // Run validator if present
