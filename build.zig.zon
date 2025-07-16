@@ -34,7 +34,7 @@
     .dependencies = .{
         .zsync = .{
             .url = "https://github.com/ghostkellz/zsync/archive/refs/heads/main.tar.gz",
-            .hash = "zsync-0.3.0-KAuheY_jFQAjnD-GYBlL3bqVvMtfRvlk9Gr8wCU8VP0K",
+            .hash = "zsync-0.3.2-KAuhed0XGADaOKjYNl34Ragvca2zBYqvoAsBV-AhkoLS",
         },
     },
     .paths = .{
