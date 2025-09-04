@@ -193,16 +193,16 @@ pub const Argument = struct {
             .@"enum" => ArgValue{ .@"enum" = input },
             .array => blk: {
                 // Parse comma-separated values
-                var result = std.ArrayList(ArgValue).init(allocator);
+                var result = std.ArrayList(ArgValue).initCapacity(allocator, 0) catch return Error.FlashError.InvalidInput;
                 var it = std.mem.splitScalar(u8, input, ',');
                 while (it.next()) |item| {
                     const trimmed = std.mem.trim(u8, item, " \t");
                     if (trimmed.len > 0) {
                         // Parse each item as a string by default
-                        try result.append(ArgValue{ .string = trimmed });
+                        try result.append(allocator, ArgValue{ .string = trimmed });
                     }
                 }
-                break :blk ArgValue{ .array = try result.toOwnedSlice() };
+                break :blk ArgValue{ .array = try result.toOwnedSlice(allocator) };
             },
         };
 

@@ -28,6 +28,11 @@ pub const FlashError = error{
     ConfigError,
     ValidationError,
 
+    // Async errors
+    AsyncExecutionFailed,
+    OperationCancelled,
+    InvalidInput,
+
     // Help/usage
     HelpRequested,
     VersionRequested,

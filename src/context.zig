@@ -16,12 +16,12 @@ pub const Context = struct {
     subcommand: ?[]const u8 = null,
     raw_args: []const []const u8,
 
-    pub fn init(allocator: std.mem.Allocator, raw_args: []const []const u8) Context {
+    pub fn init(allocator: std.mem.Allocator, raw_args: []const []const u8) !Context {
         return .{
             .allocator = allocator,
             .values = std.StringHashMap(Argument.ArgValue).init(allocator),
             .flags = std.StringHashMap(bool).init(allocator),
-            .positional = std.ArrayList(Argument.ArgValue).init(allocator),
+            .positional = try std.ArrayList(Argument.ArgValue).initCapacity(allocator, 0),
             .raw_args = raw_args,
         };
     }
@@ -29,7 +29,7 @@ pub const Context = struct {
     pub fn deinit(self: *Context) void {
         self.values.deinit();
         self.flags.deinit();
-        self.positional.deinit();
+        self.positional.deinit(self.allocator);
     }
 
     /// Set a named argument value
@@ -44,7 +44,7 @@ pub const Context = struct {
 
     /// Add a positional argument
     pub fn addPositional(self: *Context, value: Argument.ArgValue) !void {
-        try self.positional.append(value);
+        try self.positional.append(self.allocator, value);
     }
 
     /// Set the subcommand name

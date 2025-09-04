@@ -51,7 +51,7 @@ pub const Parser = struct {
 
     /// Parse command line arguments into a context
     pub fn parse(self: Parser, command: Command.Command, args: []const []const u8) Error.FlashError!Context.Context {
-        var context = Context.Context.init(self.allocator, args);
+        var context = try Context.Context.init(self.allocator, args);
         errdefer context.deinit();
 
         var state = ParseState{
