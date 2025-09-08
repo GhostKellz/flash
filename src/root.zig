@@ -36,11 +36,18 @@ pub const Declarative = @import("declarative.zig");
 pub const Validators = @import("validators.zig");
 pub const Config = @import("config.zig");
 pub const Security = @import("security.zig");
+pub const Macros = @import("macros.zig");
 
 // Convenience functions for declarative CLI building
 pub const cmd = Command.init;
 pub const arg = Argument.init;
 pub const flag = Flag.init;
+
+// New ergonomic macro-based builders (CLAP-style)
+pub const chain = Macros.cmd;
+pub const deriveStruct = Macros.deriveCommand;
+pub const command = Macros.command;
+pub const pattern = Macros.PatternMatcher.match;
 pub const parse = Declarative.parse;
 pub const parseWithConfig = Declarative.parseWithConfig;
 pub const derive = Declarative.derive;
