@@ -1,9 +1,18 @@
+<div align="center">
+  <img src="assets/icons/flash-cli.png" alt="Flash CLI Framework" width="200"/>
+</div>
+
 # ⚡️ Flash — The Lightning-Fast CLI Framework for Zig
 
-[![Zig v0.15+](https://img.shields.io/badge/zig-0.15+-f7a41d?logo=zig\&logoColor=white)](https://ziglang.org/)
+<div align="center">
+
+[![Zig v0.16-dev](https://img.shields.io/badge/zig--dev-0.16-f7a41d?logo=zig&logoColor=yellow)](https://ziglang.org/)
+[![CLI Framework](https://img.shields.io/badge/CLI-framework-blue)](https://github.com/ghostkellz/flash)
 [![Next-Gen CLI](https://img.shields.io/badge/next--gen-cli-blueviolet)]()
 [![Async-Powered](https://img.shields.io/badge/async-zsync-0db7ed)]()
 [![Pure Zig](https://img.shields.io/badge/pure-zig-success)]()
+
+</div>
 
 ---
 
