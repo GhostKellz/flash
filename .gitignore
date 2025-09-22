@@ -3,4 +3,5 @@
 *.o
 *.exe
 .zig-cache
-
+archive/
+/archive

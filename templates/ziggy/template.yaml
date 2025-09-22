@@ -1,0 +1,76 @@
+name: "ziggy"
+description: "Restic-like Backup Tool with Cloud Storage Support"
+version: "1.0.0"
+author: "Flash CLI Framework"
+
+# Template configuration
+config:
+  min_flash_version: "1.0.0"
+  zig_version: "0.16.0"
+
+# Required variables
+variables:
+  - name: project_name
+    type: string
+    required: true
+    description: "Name of the backup tool"
+    validation: "^[a-z][a-z0-9-_]*$"
+    default: "ziggy"
+
+  - name: project_description
+    type: string
+    required: false
+    default: "Fast, secure backup tool with cloud storage support"
+    description: "Brief description of the tool"
+
+  - name: with_aws
+    type: boolean
+    required: false
+    default: true
+    description: "Include AWS S3 support"
+
+  - name: with_azure
+    type: boolean
+    required: false
+    default: true
+    description: "Include Azure Blob Storage support"
+
+  - name: with_gcp
+    type: boolean
+    required: false
+    default: false
+    description: "Include Google Cloud Storage support"
+
+  - name: with_encryption
+    type: boolean
+    required: false
+    default: true
+    description: "Include AES-256 encryption"
+
+  - name: with_compression
+    type: boolean
+    required: false
+    default: true
+    description: "Include compression (zstd, lz4, gzip)"
+
+  - name: with_deduplication
+    type: boolean
+    required: false
+    default: true
+    description: "Include content-based deduplication"
+
+# Dependencies
+dependencies:
+  - name: "flash"
+    path: "../.."
+    version: "^1.0.0"
+
+# Template features
+features:
+  - incremental_backups
+  - snapshot_management
+  - encryption
+  - deduplication
+  - cloud_storage_backends
+  - parallel_operations
+  - resume_capability

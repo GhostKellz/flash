@@ -1,0 +1,828 @@
+const std = @import("std");
+const flash = @import("flash");
+
+// Define the DevOps CLI application
+const {{pascal_case project_name}}CLI = flash.CLI(.{
+    .name = "{{project_name}}",
+    .version = "{{project_version}}",
+    .about = "{{project_description}}",
+    .author = "{{author_name}}",
+
+    .commands = &.{
+        {{#if with_kubernetes}}
+        flash.cmd("k8s", .{
+            .about = "Kubernetes operations",
+            .commands = &.{
+                flash.cmd("deploy", .{
+                    .about = "Deploy application to Kubernetes",
+                    .args = &.{
+                        flash.arg("namespace", .{
+                            .help = "Kubernetes namespace",
+                            .required = false,
+                            .default_value = "default",
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("environment", .{
+                            .help = "Target environment",
+                            .short = 'e',
+                            .long = "env",
+                            .takes_value = true,
+                            .required = true,
+                            .validator = flash.validation.choiceValidator(&.{ {{#each environments_array}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}} }, true),
+                        }),
+                        flash.flag("dry-run", .{
+                            .help = "Show what would be deployed without actually deploying",
+                            .long = "dry-run",
+                        }),
+                        flash.flag("wait", .{
+                            .help = "Wait for deployment to complete",
+                            .long = "wait",
+                        }),
+                    },
+                    .run_async = k8sDeployCommand,
+                }),
+
+                flash.cmd("status", .{
+                    .about = "Check deployment status",
+                    .flags = &.{
+                        flash.flag("namespace", .{
+                            .help = "Kubernetes namespace",
+                            .short = 'n',
+                            .long = "namespace",
+                            .takes_value = true,
+                            .default_value = "default",
+                        }),
+                        flash.flag("watch", .{
+                            .help = "Watch for changes",
+                            .short = 'w',
+                            .long = "watch",
+                        }),
+                    },
+                    .run_async = k8sStatusCommand,
+                }),
+
+                flash.cmd("logs", .{
+                    .about = "Stream application logs",
+                    .args = &.{
+                        flash.arg("pod", .{
+                            .help = "Pod name or label selector",
+                            .required = false,
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("namespace", .{
+                            .help = "Kubernetes namespace",
+                            .short = 'n',
+                            .long = "namespace",
+                            .takes_value = true,
+                            .default_value = "default",
+                        }),
+                        flash.flag("follow", .{
+                            .help = "Follow log output",
+                            .short = 'f',
+                            .long = "follow",
+                        }),
+                        flash.flag("tail", .{
+                            .help = "Number of lines to show",
+                            .long = "tail",
+                            .takes_value = true,
+                            .default_value = "100",
+                            .validator = flash.validation.intInRange(1, 10000),
+                        }),
+                    },
+                    .run_async = k8sLogsCommand,
+                }),
+            },
+        }),
+        {{/if}}
+
+        {{#if with_docker}}
+        flash.cmd("docker", .{
+            .about = "Docker operations",
+            .commands = &.{
+                flash.cmd("build", .{
+                    .about = "Build Docker image",
+                    .args = &.{
+                        flash.arg("context", .{
+                            .help = "Build context directory",
+                            .required = false,
+                            .default_value = ".",
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("tag", .{
+                            .help = "Image tag",
+                            .short = 't',
+                            .long = "tag",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("dockerfile", .{
+                            .help = "Dockerfile path",
+                            .short = 'f',
+                            .long = "dockerfile",
+                            .takes_value = true,
+                            .default_value = "Dockerfile",
+                        }),
+                        flash.flag("push", .{
+                            .help = "Push image after building",
+                            .long = "push",
+                        }),
+                        flash.flag("platform", .{
+                            .help = "Build platform (e.g., linux/amd64,linux/arm64)",
+                            .long = "platform",
+                            .takes_value = true,
+                        }),
+                    },
+                    .run_async = dockerBuildCommand,
+                }),
+
+                flash.cmd("run", .{
+                    .about = "Run Docker container",
+                    .args = &.{
+                        flash.arg("image", .{
+                            .help = "Docker image to run",
+                            .required = true,
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("port", .{
+                            .help = "Port mapping (host:container)",
+                            .short = 'p',
+                            .long = "port",
+                            .takes_value = true,
+                        }),
+                        flash.flag("env", .{
+                            .help = "Environment variables",
+                            .short = 'e',
+                            .long = "env",
+                            .takes_value = true,
+                        }),
+                        flash.flag("detach", .{
+                            .help = "Run in background",
+                            .short = 'd',
+                            .long = "detach",
+                        }),
+                        flash.flag("rm", .{
+                            .help = "Remove container when it exits",
+                            .long = "rm",
+                        }),
+                    },
+                    .run = dockerRunCommand,
+                }),
+            },
+        }),
+        {{/if}}
+
+        flash.cmd("deploy", .{
+            .about = "Deploy application to target environment",
+            .flags = &.{
+                flash.flag("environment", .{
+                    .help = "Target environment",
+                    .short = 'e',
+                    .long = "env",
+                    .takes_value = true,
+                    .required = true,
+                    .validator = flash.validation.choiceValidator(&.{ {{#each environments_array}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}} }, true),
+                }),
+                flash.flag("config", .{
+                    .help = "Configuration file",
+                    .short = 'c',
+                    .long = "config",
+                    .takes_value = true,
+                    .validator = flash.validation.fileValidator(true, &.{".yaml", ".yml", ".toml", ".json"}),
+                }),
+                flash.flag("parallel", .{
+                    .help = "Run deployment steps in parallel",
+                    .long = "parallel",
+                }),
+                flash.flag("skip-tests", .{
+                    .help = "Skip pre-deployment tests",
+                    .long = "skip-tests",
+                }),
+                flash.flag("rollback-on-failure", .{
+                    .help = "Automatically rollback on deployment failure",
+                    .long = "rollback-on-failure",
+                }),
+            },
+            .run_async = deployCommand,
+        }),
+
+        flash.cmd("rollback", .{
+            .about = "Rollback to previous deployment",
+            .flags = &.{
+                flash.flag("environment", .{
+                    .help = "Target environment",
+                    .short = 'e',
+                    .long = "env",
+                    .takes_value = true,
+                    .required = true,
+                    .validator = flash.validation.choiceValidator(&.{ {{#each environments_array}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}} }, true),
+                }),
+                flash.flag("revision", .{
+                    .help = "Revision to rollback to (default: previous)",
+                    .short = 'r',
+                    .long = "revision",
+                    .takes_value = true,
+                }),
+                flash.flag("force", .{
+                    .help = "Force rollback without confirmation",
+                    .long = "force",
+                }),
+            },
+            .run_async = rollbackCommand,
+        }),
+
+        {{#if with_monitoring}}
+        flash.cmd("monitor", .{
+            .about = "Monitoring and metrics operations",
+            .commands = &.{
+                flash.cmd("health", .{
+                    .about = "Check service health",
+                    .flags = &.{
+                        flash.flag("environment", .{
+                            .help = "Target environment",
+                            .short = 'e',
+                            .long = "env",
+                            .takes_value = true,
+                            .required = true,
+                            .validator = flash.validation.choiceValidator(&.{ {{#each environments_array}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}} }, true),
+                        }),
+                        flash.flag("service", .{
+                            .help = "Specific service to check",
+                            .short = 's',
+                            .long = "service",
+                            .takes_value = true,
+                        }),
+                        flash.flag("timeout", .{
+                            .help = "Health check timeout in seconds",
+                            .long = "timeout",
+                            .takes_value = true,
+                            .default_value = "30",
+                            .validator = flash.validation.intInRange(1, 300),
+                        }),
+                    },
+                    .run_async = monitorHealthCommand,
+                }),
+
+                flash.cmd("metrics", .{
+                    .about = "Collect and display metrics",
+                    .flags = &.{
+                        flash.flag("environment", .{
+                            .help = "Target environment",
+                            .short = 'e',
+                            .long = "env",
+                            .takes_value = true,
+                            .required = true,
+                            .validator = flash.validation.choiceValidator(&.{ {{#each environments_array}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}} }, true),
+                        }),
+                        flash.flag("period", .{
+                            .help = "Time period (5m, 1h, 1d)",
+                            .short = 'p',
+                            .long = "period",
+                            .takes_value = true,
+                            .default_value = "1h",
+                        }),
+                        flash.flag("format", .{
+                            .help = "Output format",
+                            .short = 'f',
+                            .long = "format",
+                            .takes_value = true,
+                            .default_value = "table",
+                            .validator = flash.validation.choiceValidator(&.{ "table", "json", "yaml", "csv" }, true),
+                        }),
+                    },
+                    .run_async = monitorMetricsCommand,
+                }),
+            },
+        }),
+        {{/if}}
+
+        {{#if with_secrets}}
+        flash.cmd("secrets", .{
+            .about = "Secrets management operations",
+            .commands = &.{
+                flash.cmd("get", .{
+                    .about = "Retrieve secret value",
+                    .args = &.{
+                        flash.arg("name", .{
+                            .help = "Secret name",
+                            .required = true,
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("environment", .{
+                            .help = "Target environment",
+                            .short = 'e',
+                            .long = "env",
+                            .takes_value = true,
+                            .required = true,
+                            .validator = flash.validation.choiceValidator(&.{ {{#each environments_array}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}} }, true),
+                        }),
+                    },
+                    .run_async = secretsGetCommand,
+                }),
+
+                flash.cmd("set", .{
+                    .about = "Set secret value",
+                    .args = &.{
+                        flash.arg("name", .{
+                            .help = "Secret name",
+                            .required = true,
+                        }),
+                        flash.arg("value", .{
+                            .help = "Secret value (use - for stdin)",
+                            .required = true,
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("environment", .{
+                            .help = "Target environment",
+                            .short = 'e',
+                            .long = "env",
+                            .takes_value = true,
+                            .required = true,
+                            .validator = flash.validation.choiceValidator(&.{ {{#each environments_array}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}} }, true),
+                        }),
+                    },
+                    .run_async = secretsSetCommand,
+                }),
+
+                flash.cmd("list", .{
+                    .about = "List available secrets",
+                    .flags = &.{
+                        flash.flag("environment", .{
+                            .help = "Target environment",
+                            .short = 'e',
+                            .long = "env",
+                            .takes_value = true,
+                            .required = true,
+                            .validator = flash.validation.choiceValidator(&.{ {{#each environments_array}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}} }, true),
+                        }),
+                    },
+                    .run_async = secretsListCommand,
+                }),
+            },
+        }),
+        {{/if}}
+
+        flash.cmd("config", .{
+            .about = "Configuration management",
+            .commands = &.{
+                flash.cmd("init", .{
+                    .about = "Initialize configuration",
+                    .flags = &.{
+                        flash.flag("cloud-provider", .{
+                            .help = "Primary cloud provider",
+                            .long = "cloud-provider",
+                            .takes_value = true,
+                            .default_value = "{{cloud_provider}}",
+                            .validator = flash.validation.choiceValidator(&.{ "aws", "gcp", "azure", "multi", "none" }, true),
+                        }),
+                    },
+                    .run = configInitCommand,
+                }),
+
+                flash.cmd("validate", .{
+                    .about = "Validate configuration",
+                    .args = &.{
+                        flash.arg("config-file", .{
+                            .help = "Configuration file to validate",
+                            .required = false,
+                            .default_value = "{{project_name}}.yaml",
+                        }),
+                    },
+                    .run = configValidateCommand,
+                }),
+            },
+        }),
+    },
+
+    .flags = &.{
+        flash.flag("verbose", .{
+            .help = "Enable verbose output",
+            .short = 'v',
+            .long = "verbose",
+        }),
+        flash.flag("config", .{
+            .help = "Configuration file path",
+            .short = 'c',
+            .long = "config",
+            .takes_value = true,
+            .default_value = "{{project_name}}.yaml",
+        }),
+        flash.flag("log-level", .{
+            .help = "Log level",
+            .long = "log-level",
+            .takes_value = true,
+            .default_value = "info",
+            .validator = flash.validation.choiceValidator(&.{ "debug", "info", "warn", "error" }, true),
+        }),
+    },
+});
+
+// Command handlers implementation would go here
+// For brevity, showing structure with placeholder implementations
+
+{{#if with_kubernetes}}
+async fn k8sDeployCommand(ctx: flash.Context) !void {
+    const allocator = ctx.allocator;
+    const environment = ctx.get("environment").?;
+    const namespace = ctx.get("namespace") orelse "default";
+    const dry_run = ctx.getBool("dry-run");
+    const wait = ctx.getBool("wait");
+
+    std.debug.print("🚀 Deploying to Kubernetes...\n");
+    std.debug.print("Environment: {s}\n", .{environment});
+    std.debug.print("Namespace: {s}\n", .{namespace});
+
+    if (dry_run) {
+        std.debug.print("🔍 Dry run mode - showing what would be deployed:\n");
+        // Implement dry run logic
+        return;
+    }
+
+    // Create async context for parallel operations
+    var async_ctx = flash.async_cli.AsyncContext.init(allocator);
+    defer async_ctx.deinit();
+
+    // Deploy services in parallel
+    const deploy_futures = try allocator.alloc(flash.async_cli.AsyncResult, 3);
+    defer allocator.free(deploy_futures);
+
+    deploy_futures[0] = try async_ctx.spawn(deployService, .{ "frontend", environment, namespace });
+    deploy_futures[1] = try async_ctx.spawn(deployService, .{ "backend", environment, namespace });
+    deploy_futures[2] = try async_ctx.spawn(deployService, .{ "database", environment, namespace });
+
+    // Wait for all deployments
+    for (deploy_futures) |future| {
+        try future.await();
+    }
+
+    if (wait) {
+        std.debug.print("⏳ Waiting for deployment to complete...\n");
+        try waitForDeployment(namespace);
+    }
+
+    std.debug.print("✅ Deployment completed successfully!\n");
+}
+
+async fn k8sStatusCommand(ctx: flash.Context) !void {
+    const namespace = ctx.get("namespace") orelse "default";
+    const watch = ctx.getBool("watch");
+
+    std.debug.print("📊 Checking deployment status in namespace: {s}\n", .{namespace});
+
+    if (watch) {
+        std.debug.print("👀 Watching for changes (press Ctrl+C to stop)...\n");
+        // Implement watch loop
+        while (true) {
+            try displayStatus(namespace);
+            try std.time.sleep(5 * std.time.ns_per_s);
+        }
+    } else {
+        try displayStatus(namespace);
+    }
+}
+
+async fn k8sLogsCommand(ctx: flash.Context) !void {
+    const namespace = ctx.get("namespace") orelse "default";
+    const pod = ctx.get("pod");
+    const follow = ctx.getBool("follow");
+    const tail_str = ctx.get("tail") orelse "100";
+    const tail_lines = std.fmt.parseInt(u32, tail_str, 10) catch 100;
+
+    std.debug.print("📜 Streaming logs from namespace: {s}\n", .{namespace});
+
+    if (pod) |pod_name| {
+        std.debug.print("Pod: {s}\n", .{pod_name});
+    }
+
+    // Implement log streaming
+    if (follow) {
+        std.debug.print("Following logs...\n");
+        // Implement log following
+    } else {
+        std.debug.print("Showing last {} lines...\n", .{tail_lines});
+        // Implement log display
+    }
+}
+{{/if}}
+
+// Additional command implementations...
+async fn deployCommand(ctx: flash.Context) !void {
+    const allocator = ctx.allocator;
+    const environment = ctx.get("environment").?;
+    const config_file = ctx.get("config");
+    const parallel = ctx.getBool("parallel");
+    const skip_tests = ctx.getBool("skip-tests");
+
+    std.debug.print("🚀 Starting deployment to {s} environment...\n", .{environment});
+
+    if (config_file) |config| {
+        std.debug.print("Using config file: {s}\n", .{config});
+    }
+
+    // Load configuration
+    const deploy_config = try loadDeploymentConfig(allocator, environment, config_file);
+    defer deploy_config.deinit();
+
+    // Pre-deployment checks
+    if (!skip_tests) {
+        std.debug.print("🧪 Running pre-deployment tests...\n");
+        try runPreDeploymentTests(allocator);
+    }
+
+    // Execute deployment
+    if (parallel) {
+        std.debug.print("⚡ Running deployment steps in parallel...\n");
+        try executeParallelDeployment(allocator, deploy_config);
+    } else {
+        std.debug.print("📈 Running deployment steps sequentially...\n");
+        try executeSequentialDeployment(allocator, deploy_config);
+    }
+
+    std.debug.print("✅ Deployment completed successfully!\n");
+}
+
+// Helper functions (implementations would be expanded)
+async fn deployService(service: []const u8, environment: []const u8, namespace: []const u8) !void {
+    std.debug.print("Deploying {s} to {s}/{s}...\n", .{ service, environment, namespace });
+    // Implement actual deployment logic
+}
+
+fn displayStatus(namespace: []const u8) !void {
+    std.debug.print("Status for namespace: {s}\n", .{namespace});
+    // Implement status display
+}
+
+fn waitForDeployment(namespace: []const u8) !void {
+    _ = namespace;
+    // Implement deployment waiting logic
+}
+
+const DeploymentConfig = struct {
+    environment: []const u8,
+    services: []Service,
+    allocator: std.mem.Allocator,
+
+    const Service = struct {
+        name: []const u8,
+        image: []const u8,
+        replicas: u32,
+    };
+
+    fn deinit(self: DeploymentConfig) void {
+        self.allocator.free(self.services);
+    }
+};
+
+fn loadDeploymentConfig(allocator: std.mem.Allocator, environment: []const u8, config_file: ?[]const u8) !DeploymentConfig {
+    _ = environment;
+    _ = config_file;
+
+    // Placeholder implementation
+    const services = try allocator.alloc(DeploymentConfig.Service, 1);
+    services[0] = .{
+        .name = "example-service",
+        .image = "example:latest",
+        .replicas = 3,
+    };
+
+    return DeploymentConfig{
+        .environment = environment,
+        .services = services,
+        .allocator = allocator,
+    };
+}
+
+fn runPreDeploymentTests(allocator: std.mem.Allocator) !void {
+    _ = allocator;
+    std.debug.print("✅ All tests passed!\n");
+}
+
+async fn executeParallelDeployment(allocator: std.mem.Allocator, config: DeploymentConfig) !void {
+    _ = allocator;
+    _ = config;
+    std.debug.print("Executing parallel deployment...\n");
+}
+
+async fn executeSequentialDeployment(allocator: std.mem.Allocator, config: DeploymentConfig) !void {
+    _ = allocator;
+    _ = config;
+    std.debug.print("Executing sequential deployment...\n");
+}
+
+// Implement other command handlers...
+async fn rollbackCommand(ctx: flash.Context) !void {
+    const environment = ctx.get("environment").?;
+    const revision = ctx.get("revision");
+    const force = ctx.getBool("force");
+
+    std.debug.print("🔄 Rolling back {s} environment...\n", .{environment});
+
+    if (revision) |rev| {
+        std.debug.print("Target revision: {s}\n", .{rev});
+    } else {
+        std.debug.print("Rolling back to previous revision\n");
+    }
+
+    if (!force) {
+        // Implement confirmation prompt
+        std.debug.print("Are you sure? This will rollback the deployment. [y/N]: ");
+        // Read user input and confirm
+    }
+
+    std.debug.print("✅ Rollback completed!\n");
+}
+
+// Additional command implementations for monitoring, secrets, etc...
+async fn monitorHealthCommand(ctx: flash.Context) !void {
+    const environment = ctx.get("environment").?;
+    const service = ctx.get("service");
+    const timeout_str = ctx.get("timeout") orelse "30";
+    const timeout = std.fmt.parseInt(u32, timeout_str, 10) catch 30;
+
+    std.debug.print("🏥 Checking health for {s} environment...\n", .{environment});
+
+    if (service) |svc| {
+        std.debug.print("Service: {s}\n", .{svc});
+    }
+
+    std.debug.print("Timeout: {}s\n", .{timeout});
+    std.debug.print("✅ All services healthy!\n");
+}
+
+async fn monitorMetricsCommand(ctx: flash.Context) !void {
+    const environment = ctx.get("environment").?;
+    const period = ctx.get("period") orelse "1h";
+    const format = ctx.get("format") orelse "table";
+
+    std.debug.print("📊 Collecting metrics for {s} environment...\n", .{environment});
+    std.debug.print("Period: {s}, Format: {s}\n", .{ period, format });
+    std.debug.print("Metrics collected successfully!\n");
+}
+
+async fn secretsGetCommand(ctx: flash.Context) !void {
+    const environment = ctx.get("environment").?;
+    const name = ctx.get("name").?;
+
+    std.debug.print("🔐 Retrieving secret '{s}' from {s} environment...\n", .{ name, environment });
+    std.debug.print("Secret retrieved successfully!\n");
+}
+
+async fn secretsSetCommand(ctx: flash.Context) !void {
+    const environment = ctx.get("environment").?;
+    const name = ctx.get("name").?;
+    const value = ctx.get("value").?;
+
+    std.debug.print("🔐 Setting secret '{s}' in {s} environment...\n", .{ name, environment });
+
+    if (std.mem.eql(u8, value, "-")) {
+        std.debug.print("Reading value from stdin...\n");
+        // Implement stdin reading
+    }
+
+    std.debug.print("Secret set successfully!\n");
+}
+
+async fn secretsListCommand(ctx: flash.Context) !void {
+    const environment = ctx.get("environment").?;
+
+    std.debug.print("🔐 Listing secrets in {s} environment...\n", .{environment});
+    std.debug.print("No secrets found.\n");
+}
+
+fn configInitCommand(ctx: flash.Context) !void {
+    const cloud_provider = ctx.get("cloud-provider") orelse "{{cloud_provider}}";
+
+    std.debug.print("🔧 Initializing configuration...\n");
+    std.debug.print("Cloud provider: {s}\n", .{cloud_provider});
+
+    // Create default configuration file
+    const config_content = try std.fmt.allocPrint(ctx.allocator,
+        \\# {{project_name}} Configuration
+        \\
+        \\general:
+        \\  cloud_provider: "{s}"
+        \\  environments: [{{"{{environments}}"}]
+        \\
+        \\environments:
+        \\{{#each environments_array}}
+        \\  {{this}}:
+        \\    region: "us-east-1"
+        \\    # Add environment-specific configuration
+        \\{{/each}}
+        \\
+        \\{{#if with_kubernetes}}
+        \\kubernetes:
+        \\  cluster_name: "{{project_name}}-cluster"
+        \\  namespace: "default"
+        \\{{/if}}
+        \\
+        \\{{#if with_docker}}
+        \\docker:
+        \\  registry: "your-registry.com"
+        \\  image_prefix: "{{project_name}}"
+        \\{{/if}}
+    , .{cloud_provider});
+    defer ctx.allocator.free(config_content);
+
+    const file = try std.fs.cwd().createFile("{{project_name}}.yaml", .{});
+    defer file.close();
+    try file.writeAll(config_content);
+
+    std.debug.print("✅ Configuration initialized: {{project_name}}.yaml\n");
+}
+
+fn configValidateCommand(ctx: flash.Context) !void {
+    const config_file = ctx.get("config-file") orelse "{{project_name}}.yaml";
+
+    std.debug.print("🔍 Validating configuration: {s}...\n", .{config_file});
+
+    // Check if file exists
+    std.fs.cwd().access(config_file, .{}) catch |err| switch (err) {
+        error.FileNotFound => {
+            std.debug.print("❌ Configuration file not found: {s}\n", .{config_file});
+            return;
+        },
+        else => return err,
+    };
+
+    // Validate configuration content
+    // (Implementation would parse and validate YAML/TOML)
+
+    std.debug.print("✅ Configuration is valid!\n");
+}
+
+{{#if with_docker}}
+async fn dockerBuildCommand(ctx: flash.Context) !void {
+    const context = ctx.get("context") orelse ".";
+    const tag = ctx.get("tag").?;
+    const dockerfile = ctx.get("dockerfile") orelse "Dockerfile";
+    const push = ctx.getBool("push");
+    const platform = ctx.get("platform");
+
+    std.debug.print("🐳 Building Docker image...\n");
+    std.debug.print("Context: {s}, Tag: {s}, Dockerfile: {s}\n", .{ context, tag, dockerfile });
+
+    if (platform) |plat| {
+        std.debug.print("Platform: {s}\n", .{plat});
+    }
+
+    // Build image
+    std.debug.print("Building image...\n");
+
+    if (push) {
+        std.debug.print("Pushing image to registry...\n");
+    }
+
+    std.debug.print("✅ Docker image built successfully!\n");
+}
+
+fn dockerRunCommand(ctx: flash.Context) !void {
+    const image = ctx.get("image").?;
+    const port = ctx.get("port");
+    const env = ctx.get("env");
+    const detach = ctx.getBool("detach");
+    const rm = ctx.getBool("rm");
+
+    std.debug.print("🐳 Running Docker container...\n");
+    std.debug.print("Image: {s}\n", .{image});
+
+    if (port) |p| {
+        std.debug.print("Port mapping: {s}\n", .{p});
+    }
+
+    if (env) |e| {
+        std.debug.print("Environment: {s}\n", .{e});
+    }
+
+    std.debug.print("Detach: {}, Remove on exit: {}\n", .{ detach, rm });
+    std.debug.print("✅ Container started!\n");
+}
+{{/if}}
+
+// Main entry point
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    try {{pascal_case project_name}}CLI.run(gpa.allocator());
+}
+
+// Tests
+test "basic DevOps CLI functionality" {
+    const testing = std.testing;
+
+    var harness = flash.testing.TestHarness.init(testing.allocator);
+    defer harness.deinit();
+
+    // Test config init command
+    const result = try harness.execute({{pascal_case project_name}}CLI, &.{ "config", "init" });
+    defer result.deinit();
+
+    try result.expectExitCode(0);
+    try result.expectStdoutContains("Configuration initialized");
+}

@@ -1,0 +1,71 @@
+name: "zfind"
+description: "Supercharged Find and Grep Tool with Fuzzy Search"
+version: "1.0.0"
+author: "Flash CLI Framework"
+
+# Template configuration
+config:
+  min_flash_version: "1.0.0"
+  zig_version: "0.16.0"
+
+# Required variables
+variables:
+  - name: project_name
+    type: string
+    required: true
+    description: "Name of the find tool"
+    validation: "^[a-z][a-z0-9-_]*$"
+    default: "zfind"
+
+  - name: project_description
+    type: string
+    required: false
+    default: "Lightning-fast find and grep with fuzzy search, parallel execution, and smart filtering"
+    description: "Brief description of the tool"
+
+  - name: with_fuzzy_search
+    type: boolean
+    required: false
+    default: true
+    description: "Include fuzzy matching capabilities"
+
+  - name: with_regex_engine
+    type: boolean
+    required: false
+    default: true
+    description: "Include advanced regex support"
+
+  - name: with_git_integration
+    type: boolean
+    required: false
+    default: true
+    description: "Include Git-aware searching"
+
+  - name: with_binary_detection
+    type: boolean
+    required: false
+    default: true
+    description: "Include binary file detection and handling"
+
+  - name: max_parallel_workers
+    type: integer
+    required: false
+    default: 16
+    description: "Maximum parallel search workers"
+
+# Dependencies
+dependencies:
+  - name: "flash"
+    path: "../.."
+    version: "^1.0.0"
+
+# Template features
+features:
+  - parallel_search
+  - fuzzy_matching
+  - regex_patterns
+  - git_awareness
+  - smart_filtering
+  - interactive_mode
+  - json_output
+  - performance_optimized

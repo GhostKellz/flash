@@ -1,0 +1,70 @@
+prompts:
+  - name: project_name
+    message: "DevOps tool name (lowercase, no spaces)"
+    type: input
+    validate: "^[a-z][a-z0-9-_]*$"
+    error_message: "Tool name must start with lowercase letter and contain only lowercase letters, numbers, hyphens, and underscores"
+
+  - name: project_description
+    message: "Tool description"
+    type: input
+    default: "A DevOps tool built with Flash"
+
+  - name: project_version
+    message: "Initial version"
+    type: input
+    default: "0.1.0"
+    validate: "^\\d+\\.\\d+\\.\\d+.*$"
+
+  - name: author_name
+    message: "Author name"
+    type: input
+    default: "Your Name"
+
+  - name: cloud_provider
+    message: "Primary cloud provider"
+    type: select
+    choices:
+      - name: "AWS"
+        value: "aws"
+        description: "Amazon Web Services"
+      - name: "GCP"
+        value: "gcp"
+        description: "Google Cloud Platform"
+      - name: "Azure"
+        value: "azure"
+        description: "Microsoft Azure"
+      - name: "Multi-cloud"
+        value: "multi"
+        description: "Support multiple cloud providers"
+      - name: "None/On-premise"
+        value: "none"
+        description: "No cloud provider specific features"
+    default: "aws"
+
+  - name: environments
+    message: "Deployment environments (comma-separated)"
+    type: input
+    default: "dev,staging,prod"
+    validate: "^[a-z][a-z0-9-_]*(,[a-z][a-z0-9-_]*)*$"
+    error_message: "Environments must be comma-separated lowercase names"
+
+  - name: with_kubernetes
+    message: "Include Kubernetes deployment support?"
+    type: confirm
+    default: true
+
+  - name: with_docker
+    message: "Include Docker operations?"
+    type: confirm
+    default: true
+
+  - name: with_monitoring
+    message: "Include monitoring and metrics collection?"
+    type: confirm
+    default: true
+
+  - name: with_secrets
+    message: "Include secrets management?"
+    type: confirm
+    default: true

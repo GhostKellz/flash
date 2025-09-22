@@ -1,0 +1,1106 @@
+const std = @import("std");
+const flash = @import("flash");
+
+// {{project_name}} - Enhanced Azure CLI with advanced features
+const {{pascal_case project_name}}CLI = flash.CLI(.{
+    .name = "{{project_name}}",
+    .version = "{{project_version}}",
+    .about = "{{project_description}}",
+    .author = "{{author_name}}",
+
+    .commands = &.{
+        // Azure login and account management
+        flash.cmd("login", .{
+            .about = "Log in to Azure with enhanced authentication",
+            .flags = &.{
+                flash.flag("tenant", .{
+                    .help = "Azure tenant ID",
+                    .short = 't',
+                    .long = "tenant",
+                    .takes_value = true,
+                }),
+                flash.flag("service-principal", .{
+                    .help = "Use service principal authentication",
+                    .long = "service-principal",
+                }),
+                flash.flag("identity", .{
+                    .help = "Use managed identity",
+                    .long = "identity",
+                }),
+                flash.flag("device-code", .{
+                    .help = "Use device code flow",
+                    .long = "device-code",
+                }),
+                flash.flag("username", .{
+                    .help = "Username for authentication",
+                    .short = 'u',
+                    .long = "username",
+                    .takes_value = true,
+                }),
+                flash.flag("password", .{
+                    .help = "Password for authentication",
+                    .short = 'p',
+                    .long = "password",
+                    .takes_value = true,
+                }),
+                flash.flag("scope", .{
+                    .help = "Authentication scope",
+                    .long = "scope",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+            },
+            .run_async = loginCommand,
+        }),
+
+        // Enhanced resource management
+        flash.cmd("resource", .{
+            .about = "Advanced resource management operations",
+            .commands = &.{
+                flash.cmd("list", .{
+                    .about = "List resources with advanced filtering",
+                    .flags = &.{
+                        flash.flag("resource-group", .{
+                            .help = "Resource group name",
+                            .short = 'g',
+                            .long = "resource-group",
+                            .takes_value = true,
+                        }),
+                        flash.flag("resource-type", .{
+                            .help = "Filter by resource type",
+                            .short = 't',
+                            .long = "type",
+                            .takes_value = true,
+                        }),
+                        flash.flag("location", .{
+                            .help = "Filter by location",
+                            .short = 'l',
+                            .long = "location",
+                            .takes_value = true,
+                        }),
+                        flash.flag("tag", .{
+                            .help = "Filter by tags (key=value)",
+                            .long = "tag",
+                            .takes_value = true,
+                            .multiple = true,
+                        }),
+                        flash.flag("query", .{
+                            .help = "JMESPath query for advanced filtering",
+                            .short = 'q',
+                            .long = "query",
+                            .takes_value = true,
+                        }),
+                        flash.flag("output", .{
+                            .help = "Output format (table, json, yaml, csv, tsv)",
+                            .short = 'o',
+                            .long = "output",
+                            .takes_value = true,
+                            .default_value = "table",
+                            .validator = flash.validation.choiceValidator(&.{ "table", "json", "yaml", "csv", "tsv" }, true),
+                        }),
+                        flash.flag("show-details", .{
+                            .help = "Show detailed resource information",
+                            .long = "show-details",
+                        }),
+                        flash.flag("include-costs", .{
+                            .help = "Include cost information",
+                            .long = "include-costs",
+                        }),
+                    },
+                    .run_async = resourceListCommand,
+                }),
+                flash.cmd("bulk-delete", .{
+                    .about = "Bulk delete resources matching criteria",
+                    .flags = &.{
+                        flash.flag("resource-group", .{
+                            .help = "Target resource group",
+                            .short = 'g',
+                            .long = "resource-group",
+                            .takes_value = true,
+                        }),
+                        flash.flag("filter", .{
+                            .help = "Filter expression",
+                            .short = 'f',
+                            .long = "filter",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("dry-run", .{
+                            .help = "Show what would be deleted",
+                            .long = "dry-run",
+                        }),
+                        flash.flag("force", .{
+                            .help = "Skip confirmation",
+                            .long = "force",
+                        }),
+                        flash.flag("parallel", .{
+                            .help = "Number of parallel deletions",
+                            .long = "parallel",
+                            .takes_value = true,
+                            .default_value = "5",
+                            .validator = flash.validation.intInRange(1, 20),
+                        }),
+                    },
+                    .run_async = resourceBulkDeleteCommand,
+                }),
+                flash.cmd("inventory", .{
+                    .about = "Generate comprehensive resource inventory",
+                    .flags = &.{
+                        flash.flag("subscription", .{
+                            .help = "Target subscription(s)",
+                            .short = 's',
+                            .long = "subscription",
+                            .takes_value = true,
+                            .multiple = true,
+                        }),
+                        flash.flag("include-costs", .{
+                            .help = "Include cost breakdown",
+                            .long = "include-costs",
+                        }),
+                        flash.flag("include-compliance", .{
+                            .help = "Include compliance status",
+                            .long = "include-compliance",
+                        }),
+                        flash.flag("export", .{
+                            .help = "Export to file (xlsx, csv, json)",
+                            .short = 'e',
+                            .long = "export",
+                            .takes_value = true,
+                        }),
+                        flash.flag("group-by", .{
+                            .help = "Group results by (subscription, resource-group, type, location)",
+                            .long = "group-by",
+                            .takes_value = true,
+                            .validator = flash.validation.choiceValidator(&.{ "subscription", "resource-group", "type", "location" }, true),
+                        }),
+                    },
+                    .run_async = resourceInventoryCommand,
+                }),
+            },
+        }),
+
+        {{#if with_kubernetes}}
+        // Enhanced AKS management
+        flash.cmd("aks", .{
+            .about = "Advanced Azure Kubernetes Service management",
+            .commands = &.{
+                flash.cmd("optimize", .{
+                    .about = "Optimize AKS cluster configuration",
+                    .args = &.{
+                        flash.arg("cluster-name", .{
+                            .help = "AKS cluster name",
+                            .required = true,
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("resource-group", .{
+                            .help = "Resource group name",
+                            .short = 'g',
+                            .long = "resource-group",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("check-costs", .{
+                            .help = "Include cost optimization recommendations",
+                            .long = "check-costs",
+                        }),
+                        flash.flag("check-security", .{
+                            .help = "Include security recommendations",
+                            .long = "check-security",
+                        }),
+                        flash.flag("check-performance", .{
+                            .help = "Include performance recommendations",
+                            .long = "check-performance",
+                        }),
+                        flash.flag("auto-apply", .{
+                            .help = "Automatically apply safe optimizations",
+                            .long = "auto-apply",
+                        }),
+                    },
+                    .run_async = aksOptimizeCommand,
+                }),
+                flash.cmd("health-check", .{
+                    .about = "Comprehensive AKS cluster health check",
+                    .args = &.{
+                        flash.arg("cluster-name", .{
+                            .help = "AKS cluster name",
+                            .required = true,
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("resource-group", .{
+                            .help = "Resource group name",
+                            .short = 'g',
+                            .long = "resource-group",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("include-workloads", .{
+                            .help = "Check workload health",
+                            .long = "include-workloads",
+                        }),
+                        flash.flag("check-networking", .{
+                            .help = "Check networking configuration",
+                            .long = "check-networking",
+                        }),
+                        flash.flag("export-report", .{
+                            .help = "Export health report",
+                            .long = "export-report",
+                            .takes_value = true,
+                        }),
+                    },
+                    .run_async = aksHealthCheckCommand,
+                }),
+                flash.cmd("upgrade-plan", .{
+                    .about = "Plan AKS cluster upgrade with impact analysis",
+                    .args = &.{
+                        flash.arg("cluster-name", .{
+                            .help = "AKS cluster name",
+                            .required = true,
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("resource-group", .{
+                            .help = "Resource group name",
+                            .short = 'g',
+                            .long = "resource-group",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("target-version", .{
+                            .help = "Target Kubernetes version",
+                            .long = "target-version",
+                            .takes_value = true,
+                        }),
+                        flash.flag("analyze-workloads", .{
+                            .help = "Analyze workload compatibility",
+                            .long = "analyze-workloads",
+                        }),
+                        flash.flag("simulate", .{
+                            .help = "Simulate upgrade process",
+                            .long = "simulate",
+                        }),
+                    },
+                    .run_async = aksUpgradePlanCommand,
+                }),
+            },
+        }),
+        {{/if}}
+
+        {{#if with_cost_management}}
+        // Enhanced cost management
+        flash.cmd("cost", .{
+            .about = "Advanced cost management and optimization",
+            .commands = &.{
+                flash.cmd("analyze", .{
+                    .about = "Analyze costs with detailed breakdown",
+                    .flags = &.{
+                        flash.flag("timeframe", .{
+                            .help = "Analysis timeframe (day, week, month, custom)",
+                            .short = 't',
+                            .long = "timeframe",
+                            .takes_value = true,
+                            .default_value = "month",
+                            .validator = flash.validation.choiceValidator(&.{ "day", "week", "month", "custom" }, true),
+                        }),
+                        flash.flag("start-date", .{
+                            .help = "Start date for custom timeframe (YYYY-MM-DD)",
+                            .long = "start-date",
+                            .takes_value = true,
+                        }),
+                        flash.flag("end-date", .{
+                            .help = "End date for custom timeframe (YYYY-MM-DD)",
+                            .long = "end-date",
+                            .takes_value = true,
+                        }),
+                        flash.flag("group-by", .{
+                            .help = "Group costs by (resource-group, service, location, tag)",
+                            .short = 'g',
+                            .long = "group-by",
+                            .takes_value = true,
+                            .multiple = true,
+                        }),
+                        flash.flag("threshold", .{
+                            .help = "Show only items above cost threshold",
+                            .long = "threshold",
+                            .takes_value = true,
+                        }),
+                        flash.flag("currency", .{
+                            .help = "Display currency (USD, EUR, GBP, etc.)",
+                            .short = 'c',
+                            .long = "currency",
+                            .takes_value = true,
+                            .default_value = "USD",
+                        }),
+                        flash.flag("include-forecast", .{
+                            .help = "Include cost forecast",
+                            .long = "include-forecast",
+                        }),
+                    },
+                    .run_async = costAnalyzeCommand,
+                }),
+                flash.cmd("optimize", .{
+                    .about = "Find cost optimization opportunities",
+                    .flags = &.{
+                        flash.flag("resource-group", .{
+                            .help = "Target resource group",
+                            .short = 'g',
+                            .long = "resource-group",
+                            .takes_value = true,
+                        }),
+                        flash.flag("service", .{
+                            .help = "Target specific service",
+                            .short = 's',
+                            .long = "service",
+                            .takes_value = true,
+                        }),
+                        flash.flag("savings-threshold", .{
+                            .help = "Minimum potential savings to show",
+                            .long = "savings-threshold",
+                            .takes_value = true,
+                            .default_value = "100",
+                        }),
+                        flash.flag("include-reservations", .{
+                            .help = "Include reserved instance recommendations",
+                            .long = "include-reservations",
+                        }),
+                        flash.flag("include-rightsizing", .{
+                            .help = "Include VM rightsizing recommendations",
+                            .long = "include-rightsizing",
+                        }),
+                        flash.flag("auto-apply", .{
+                            .help = "Automatically apply safe optimizations",
+                            .long = "auto-apply",
+                        }),
+                    },
+                    .run_async = costOptimizeCommand,
+                }),
+                flash.cmd("alerts", .{
+                    .about = "Manage cost alerts and budgets",
+                    .commands = &.{
+                        flash.cmd("create", .{
+                            .about = "Create cost alert",
+                            .args = &.{
+                                flash.arg("name", .{
+                                    .help = "Alert name",
+                                    .required = true,
+                                }),
+                            },
+                            .flags = &.{
+                                flash.flag("threshold", .{
+                                    .help = "Cost threshold",
+                                    .short = 't',
+                                    .long = "threshold",
+                                    .takes_value = true,
+                                    .required = true,
+                                }),
+                                flash.flag("scope", .{
+                                    .help = "Alert scope (subscription, resource-group)",
+                                    .short = 's',
+                                    .long = "scope",
+                                    .takes_value = true,
+                                    .required = true,
+                                }),
+                                flash.flag("email", .{
+                                    .help = "Email notifications",
+                                    .short = 'e',
+                                    .long = "email",
+                                    .takes_value = true,
+                                    .multiple = true,
+                                }),
+                                flash.flag("webhook", .{
+                                    .help = "Webhook URL",
+                                    .long = "webhook",
+                                    .takes_value = true,
+                                }),
+                            },
+                            .run_async = costAlertCreateCommand,
+                        }),
+                    },
+                }),
+            },
+        }),
+        {{/if}}
+
+        {{#if with_monitoring}}
+        // Enhanced monitoring and alerting
+        flash.cmd("monitor", .{
+            .about = "Advanced monitoring and observability",
+            .commands = &.{
+                flash.cmd("dashboard", .{
+                    .about = "Create comprehensive monitoring dashboard",
+                    .flags = &.{
+                        flash.flag("template", .{
+                            .help = "Dashboard template (infrastructure, applications, security)",
+                            .short = 't',
+                            .long = "template",
+                            .takes_value = true,
+                            .validator = flash.validation.choiceValidator(&.{ "infrastructure", "applications", "security", "custom" }, true),
+                        }),
+                        flash.flag("resource-group", .{
+                            .help = "Target resource group",
+                            .short = 'g',
+                            .long = "resource-group",
+                            .takes_value = true,
+                        }),
+                        flash.flag("auto-configure", .{
+                            .help = "Auto-configure based on existing resources",
+                            .long = "auto-configure",
+                        }),
+                        flash.flag("export", .{
+                            .help = "Export dashboard definition",
+                            .short = 'e',
+                            .long = "export",
+                            .takes_value = true,
+                        }),
+                    },
+                    .run_async = monitorDashboardCommand,
+                }),
+                flash.cmd("health-check", .{
+                    .about = "Comprehensive infrastructure health check",
+                    .flags = &.{
+                        flash.flag("scope", .{
+                            .help = "Check scope (subscription, resource-group, resource)",
+                            .short = 's',
+                            .long = "scope",
+                            .takes_value = true,
+                            .default_value = "subscription",
+                        }),
+                        flash.flag("check-performance", .{
+                            .help = "Include performance metrics",
+                            .long = "check-performance",
+                        }),
+                        flash.flag("check-availability", .{
+                            .help = "Include availability metrics",
+                            .long = "check-availability",
+                        }),
+                        flash.flag("check-security", .{
+                            .help = "Include security posture",
+                            .long = "check-security",
+                        }),
+                        flash.flag("export-report", .{
+                            .help = "Export health report",
+                            .long = "export-report",
+                            .takes_value = true,
+                        }),
+                    },
+                    .run_async = monitorHealthCheckCommand,
+                }),
+                flash.cmd("anomaly-detection", .{
+                    .about = "Set up intelligent anomaly detection",
+                    .flags = &.{
+                        flash.flag("metric", .{
+                            .help = "Target metric",
+                            .short = 'm',
+                            .long = "metric",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("sensitivity", .{
+                            .help = "Detection sensitivity (low, medium, high)",
+                            .short = 's',
+                            .long = "sensitivity",
+                            .takes_value = true,
+                            .default_value = "medium",
+                            .validator = flash.validation.choiceValidator(&.{ "low", "medium", "high" }, true),
+                        }),
+                        flash.flag("lookback-period", .{
+                            .help = "Historical data period for baseline",
+                            .long = "lookback-period",
+                            .takes_value = true,
+                            .default_value = "30d",
+                        }),
+                    },
+                    .run_async = monitorAnomalyDetectionCommand,
+                }),
+            },
+        }),
+        {{/if}}
+
+        {{#if with_security}}
+        // Enhanced security management
+        flash.cmd("security", .{
+            .about = "Advanced security and compliance management",
+            .commands = &.{
+                flash.cmd("scan", .{
+                    .about = "Comprehensive security scan",
+                    .flags = &.{
+                        flash.flag("scope", .{
+                            .help = "Scan scope (subscription, resource-group)",
+                            .short = 's',
+                            .long = "scope",
+                            .takes_value = true,
+                            .default_value = "subscription",
+                        }),
+                        flash.flag("check-identity", .{
+                            .help = "Include identity and access review",
+                            .long = "check-identity",
+                        }),
+                        flash.flag("check-network", .{
+                            .help = "Include network security review",
+                            .long = "check-network",
+                        }),
+                        flash.flag("check-data", .{
+                            .help = "Include data protection review",
+                            .long = "check-data",
+                        }),
+                        flash.flag("check-compliance", .{
+                            .help = "Include compliance frameworks",
+                            .long = "check-compliance",
+                            .takes_value = true,
+                            .multiple = true,
+                        }),
+                        flash.flag("severity", .{
+                            .help = "Minimum severity level (low, medium, high, critical)",
+                            .long = "severity",
+                            .takes_value = true,
+                            .default_value = "medium",
+                            .validator = flash.validation.choiceValidator(&.{ "low", "medium", "high", "critical" }, true),
+                        }),
+                        flash.flag("export-report", .{
+                            .help = "Export security report",
+                            .long = "export-report",
+                            .takes_value = true,
+                        }),
+                    },
+                    .run_async = securityScanCommand,
+                }),
+                flash.cmd("baseline", .{
+                    .about = "Apply security baseline configurations",
+                    .flags = &.{
+                        flash.flag("framework", .{
+                            .help = "Security framework (CIS, NIST, Azure-Security-Benchmark)",
+                            .short = 'f',
+                            .long = "framework",
+                            .takes_value = true,
+                            .default_value = "Azure-Security-Benchmark",
+                            .validator = flash.validation.choiceValidator(&.{ "CIS", "NIST", "Azure-Security-Benchmark" }, true),
+                        }),
+                        flash.flag("profile", .{
+                            .help = "Security profile (basic, standard, strict)",
+                            .short = 'p',
+                            .long = "profile",
+                            .takes_value = true,
+                            .default_value = "standard",
+                            .validator = flash.validation.choiceValidator(&.{ "basic", "standard", "strict" }, true),
+                        }),
+                        flash.flag("dry-run", .{
+                            .help = "Show what would be configured",
+                            .long = "dry-run",
+                        }),
+                        flash.flag("resource-group", .{
+                            .help = "Target resource group",
+                            .short = 'g',
+                            .long = "resource-group",
+                            .takes_value = true,
+                        }),
+                    },
+                    .run_async = securityBaselineCommand,
+                }),
+            },
+        }),
+        {{/if}}
+
+        {{#if with_automation}}
+        // Infrastructure as Code and automation
+        flash.cmd("automation", .{
+            .about = "Advanced automation and Infrastructure as Code",
+            .commands = &.{
+                flash.cmd("export", .{
+                    .about = "Export existing resources as code",
+                    .flags = &.{
+                        flash.flag("resource-group", .{
+                            .help = "Resource group to export",
+                            .short = 'g',
+                            .long = "resource-group",
+                            .takes_value = true,
+                        }),
+                        flash.flag("format", .{
+                            .help = "Export format (arm, bicep, terraform)",
+                            .short = 'f',
+                            .long = "format",
+                            .takes_value = true,
+                            .default_value = "bicep",
+                            .validator = flash.validation.choiceValidator(&.{ "arm", "bicep", "terraform" }, true),
+                        }),
+                        flash.flag("output-dir", .{
+                            .help = "Output directory",
+                            .short = 'o',
+                            .long = "output-dir",
+                            .takes_value = true,
+                            .default_value = "./exported",
+                        }),
+                        flash.flag("include-parameters", .{
+                            .help = "Generate parameter files",
+                            .long = "include-parameters",
+                        }),
+                        flash.flag("modularize", .{
+                            .help = "Split into logical modules",
+                            .long = "modularize",
+                        }),
+                    },
+                    .run_async = automationExportCommand,
+                }),
+                flash.cmd("validate", .{
+                    .about = "Validate Infrastructure as Code templates",
+                    .args = &.{
+                        flash.arg("template-file", .{
+                            .help = "Template file to validate",
+                            .required = true,
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("parameters", .{
+                            .help = "Parameters file",
+                            .short = 'p',
+                            .long = "parameters",
+                            .takes_value = true,
+                        }),
+                        flash.flag("check-best-practices", .{
+                            .help = "Check against best practices",
+                            .long = "check-best-practices",
+                        }),
+                        flash.flag("check-security", .{
+                            .help = "Security validation",
+                            .long = "check-security",
+                        }),
+                        flash.flag("check-costs", .{
+                            .help = "Cost estimation",
+                            .long = "check-costs",
+                        }),
+                    },
+                    .run_async = automationValidateCommand,
+                }),
+                flash.cmd("what-if", .{
+                    .about = "Preview deployment changes",
+                    .args = &.{
+                        flash.arg("template-file", .{
+                            .help = "Template file",
+                            .required = true,
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("resource-group", .{
+                            .help = "Target resource group",
+                            .short = 'g',
+                            .long = "resource-group",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("parameters", .{
+                            .help = "Parameters file",
+                            .short = 'p',
+                            .long = "parameters",
+                            .takes_value = true,
+                        }),
+                        flash.flag("mode", .{
+                            .help = "Deployment mode (incremental, complete)",
+                            .short = 'm',
+                            .long = "mode",
+                            .takes_value = true,
+                            .default_value = "incremental",
+                            .validator = flash.validation.choiceValidator(&.{ "incremental", "complete" }, true),
+                        }),
+                    },
+                    .run_async = automationWhatIfCommand,
+                }),
+            },
+        }),
+        {{/if}}
+
+        // Multi-subscription management
+        flash.cmd("subscription", .{
+            .about = "Enhanced subscription management",
+            .commands = &.{
+                flash.cmd("switch", .{
+                    .about = "Switch between subscriptions with context",
+                    .args = &.{
+                        flash.arg("subscription", .{
+                            .help = "Subscription ID or name",
+                            .required = true,
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("save-context", .{
+                            .help = "Save as default context",
+                            .long = "save-context",
+                        }),
+                        flash.flag("validate", .{
+                            .help = "Validate subscription access",
+                            .long = "validate",
+                        }),
+                    },
+                    .run_async = subscriptionSwitchCommand,
+                }),
+                flash.cmd("compare", .{
+                    .about = "Compare configurations across subscriptions",
+                    .args = &.{
+                        flash.arg("subscriptions", .{
+                            .help = "Subscription IDs to compare",
+                            .required = true,
+                            .multiple = true,
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("compare-costs", .{
+                            .help = "Include cost comparison",
+                            .long = "compare-costs",
+                        }),
+                        flash.flag("compare-security", .{
+                            .help = "Include security posture comparison",
+                            .long = "compare-security",
+                        }),
+                        flash.flag("compare-resources", .{
+                            .help = "Include resource comparison",
+                            .long = "compare-resources",
+                        }),
+                        flash.flag("export", .{
+                            .help = "Export comparison report",
+                            .short = 'e',
+                            .long = "export",
+                            .takes_value = true,
+                        }),
+                    },
+                    .run_async = subscriptionCompareCommand,
+                }),
+            },
+        }),
+
+        // Enhanced query capabilities
+        flash.cmd("query", .{
+            .about = "Advanced resource querying with KQL and JMESPath",
+            .args = &.{
+                flash.arg("query", .{
+                    .help = "Query expression",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("query-type", .{
+                    .help = "Query type (jmespath, kql, graph)",
+                    .short = 't',
+                    .long = "type",
+                    .takes_value = true,
+                    .default_value = "jmespath",
+                    .validator = flash.validation.choiceValidator(&.{ "jmespath", "kql", "graph" }, true),
+                }),
+                flash.flag("subscription", .{
+                    .help = "Target subscription(s)",
+                    .short = 's',
+                    .long = "subscription",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("output", .{
+                    .help = "Output format",
+                    .short = 'o',
+                    .long = "output",
+                    .takes_value = true,
+                    .default_value = "table",
+                    .validator = flash.validation.choiceValidator(&.{ "table", "json", "yaml", "csv" }, true),
+                }),
+                flash.flag("first", .{
+                    .help = "Limit results to first N items",
+                    .long = "first",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(1, 10000),
+                }),
+                flash.flag("skip", .{
+                    .help = "Skip first N items",
+                    .long = "skip",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(0, 10000),
+                }),
+            },
+            .run_async = queryCommand,
+        }),
+    },
+
+    .flags = &.{
+        flash.flag("subscription", .{
+            .help = "Azure subscription ID",
+            .short = 's',
+            .long = "subscription",
+            .takes_value = true,
+        }),
+        flash.flag("resource-group", .{
+            .help = "Azure resource group",
+            .short = 'g',
+            .long = "resource-group",
+            .takes_value = true,
+        }),
+        flash.flag("location", .{
+            .help = "Azure location",
+            .short = 'l',
+            .long = "location",
+            .takes_value = true,
+        }),
+        flash.flag("output", .{
+            .help = "Output format (table, json, yaml, csv, tsv)",
+            .short = 'o',
+            .long = "output",
+            .takes_value = true,
+            .default_value = "table",
+            .validator = flash.validation.choiceValidator(&.{ "table", "json", "yaml", "csv", "tsv" }, true),
+        }),
+        flash.flag("verbose", .{
+            .help = "Enable verbose output",
+            .short = 'v',
+            .long = "verbose",
+        }),
+        flash.flag("debug", .{
+            .help = "Enable debug output",
+            .long = "debug",
+        }),
+        flash.flag("only-show-errors", .{
+            .help = "Only show errors",
+            .long = "only-show-errors",
+        }),
+    },
+});
+
+// Command implementations
+async fn loginCommand(ctx: flash.Context) !void {
+    const tenant = ctx.get("tenant");
+    const service_principal = ctx.getBool("service-principal");
+    const device_code = ctx.getBool("device-code");
+
+    std.debug.print("🔐 Authenticating with Azure...\n");
+
+    if (tenant) |t| {
+        std.debug.print("Tenant: {s}\n", .{t});
+    }
+
+    if (service_principal) {
+        std.debug.print("Using service principal authentication\n");
+    } else if (device_code) {
+        std.debug.print("Device code: https://microsoft.com/devicelogin\n");
+        std.debug.print("Code: ABC-DEF-123\n");
+    }
+
+    std.debug.print("✅ Successfully authenticated!\n");
+    std.debug.print("Subscription: Default Subscription (12345678-1234-1234-1234-123456789012)\n");
+}
+
+async fn resourceListCommand(ctx: flash.Context) !void {
+    const resource_group = ctx.get("resource-group");
+    const resource_type = ctx.get("resource-type");
+    const include_costs = ctx.getBool("include-costs");
+    const show_details = ctx.getBool("show-details");
+
+    std.debug.print("📋 Listing Azure resources...\n");
+
+    if (resource_group) |rg| {
+        std.debug.print("Resource Group: {s}\n", .{rg});
+    }
+
+    if (resource_type) |rt| {
+        std.debug.print("Type Filter: {s}\n", .{rt});
+    }
+
+    std.debug.print("\n");
+
+    if (show_details) {
+        std.debug.print("Name                    Type                      Location    Status    ");
+        if (include_costs) {
+            std.debug.print("Monthly Cost");
+        }
+        std.debug.print("\n");
+        std.debug.print("─────────────────────── ───────────────────────── ─────────── ───────── ");
+        if (include_costs) {
+            std.debug.print("────────────");
+        }
+        std.debug.print("\n");
+        std.debug.print("myapp-vm                Microsoft.Compute/VMs     East US     Running   ");
+        if (include_costs) {
+            std.debug.print("$245.67");
+        }
+        std.debug.print("\n");
+        std.debug.print("myapp-storage           Microsoft.Storage/Acc     East US     Available ");
+        if (include_costs) {
+            std.debug.print("$12.34");
+        }
+        std.debug.print("\n");
+    } else {
+        std.debug.print("myapp-vm (Microsoft.Compute/virtualMachines)\n");
+        std.debug.print("myapp-storage (Microsoft.Storage/storageAccounts)\n");
+        std.debug.print("myapp-network (Microsoft.Network/virtualNetworks)\n");
+    }
+
+    std.debug.print("\n📊 Total: 3 resources\n");
+    if (include_costs) {
+        std.debug.print("💰 Total monthly cost: $258.01\n");
+    }
+}
+
+{{#if with_kubernetes}}
+async fn aksOptimizeCommand(ctx: flash.Context) !void {
+    const cluster_name = ctx.get("cluster-name").?;
+    const resource_group = ctx.get("resource-group").?;
+    const check_costs = ctx.getBool("check-costs");
+    const auto_apply = ctx.getBool("auto-apply");
+
+    std.debug.print("⚡ Optimizing AKS cluster: {s}\n", .{cluster_name});
+    std.debug.print("Resource Group: {s}\n", .{resource_group});
+
+    std.debug.print("\n🔍 Analysis Results:\n");
+
+    if (check_costs) {
+        std.debug.print("\n💰 Cost Optimization:\n");
+        std.debug.print("  • Node pool over-provisioned: Potential savings $156/month\n");
+        std.debug.print("  • Unused load balancer: Potential savings $23/month\n");
+    }
+
+    std.debug.print("\n🔧 Performance Optimization:\n");
+    std.debug.print("  • Enable cluster autoscaler: Recommended\n");
+    std.debug.print("  • Update node pool VM size: Standard_D4s_v3 → Standard_D2s_v3\n");
+
+    std.debug.print("\n🔒 Security Optimization:\n");
+    std.debug.print("  • Enable Azure Policy: Recommended\n");
+    std.debug.print("  • Update RBAC configuration: Required\n");
+
+    if (auto_apply) {
+        std.debug.print("\n⚙️  Applying safe optimizations...\n");
+        std.debug.print("✅ Cluster autoscaler enabled\n");
+        std.debug.print("✅ Azure Policy enabled\n");
+        std.debug.print("⚠️  Manual approval required for node pool changes\n");
+    }
+}
+{{/if}}
+
+{{#if with_cost_management}}
+async fn costAnalyzeCommand(ctx: flash.Context) !void {
+    const timeframe = ctx.get("timeframe") orelse "month";
+    const include_forecast = ctx.getBool("include-forecast");
+    const currency = ctx.get("currency") orelse "USD";
+
+    std.debug.print("💰 Cost Analysis (Timeframe: {s}, Currency: {s})\n\n", .{ timeframe, currency });
+
+    std.debug.print("📊 Current Month Summary:\n");
+    std.debug.print("  Total Spend: $1,234.56\n");
+    std.debug.print("  Budget: $1,500.00 (82% used)\n");
+    std.debug.print("  vs Last Month: +12.3% ($135.22)\n");
+
+    std.debug.print("\n🏆 Top Cost Centers:\n");
+    std.debug.print("  1. Virtual Machines    $567.89 (46%)\n");
+    std.debug.print("  2. Storage Accounts    $234.56 (19%)\n");
+    std.debug.print("  3. App Services        $123.45 (10%)\n");
+    std.debug.print("  4. Azure SQL           $98.76 (8%)\n");
+    std.debug.print("  5. Other               $209.90 (17%)\n");
+
+    if (include_forecast) {
+        std.debug.print("\n📈 Forecast (Next 30 days):\n");
+        std.debug.print("  Projected Spend: $1,345.67\n");
+        std.debug.print("  Trend: +8.9% increase\n");
+        std.debug.print("  Budget Alert: On track\n");
+    }
+}
+
+async fn costOptimizeCommand(ctx: flash.Context) !void {
+    const auto_apply = ctx.getBool("auto-apply");
+
+    std.debug.print("💡 Cost Optimization Recommendations:\n\n");
+
+    std.debug.print("🎯 High Impact (>$100/month savings):\n");
+    std.debug.print("  1. Right-size over-provisioned VMs\n");
+    std.debug.print("     • myapp-vm-1: Standard_D8s_v3 → Standard_D4s_v3 ($156/month)\n");
+    std.debug.print("     • myapp-vm-2: Standard_D4s_v3 → Standard_D2s_v3 ($78/month)\n");
+
+    std.debug.print("\n  2. Reserved Instances\n");
+    std.debug.print("     • 3x Standard_D4s_v3 (1-year): $234/month savings\n");
+
+    std.debug.print("\n📊 Medium Impact ($25-$100/month savings):\n");
+    std.debug.print("  3. Optimize storage tiers\n");
+    std.debug.print("     • Move old blobs to Cool tier: $45/month\n");
+
+    std.debug.print("\n  4. Delete unused resources\n");
+    std.debug.print("     • Orphaned disks (5): $67/month\n");
+    std.debug.print("     • Unused IP addresses (3): $12/month\n");
+
+    if (auto_apply) {
+        std.debug.print("\n⚙️  Applying safe optimizations...\n");
+        std.debug.print("✅ Deleted 5 orphaned disks\n");
+        std.debug.print("✅ Released 3 unused IP addresses\n");
+        std.debug.print("💰 Immediate savings: $79/month\n");
+        std.debug.print("⚠️  Manual approval required for VM rightsizing\n");
+    }
+
+    std.debug.print("\n💰 Total Potential Savings: $592/month (48% reduction)\n");
+}
+{{/if}}
+
+{{#if with_security}}
+async fn securityScanCommand(ctx: flash.Context) !void {
+    const scope = ctx.get("scope") orelse "subscription";
+    const severity = ctx.get("severity") orelse "medium";
+    const check_identity = ctx.getBool("check-identity");
+    const check_network = ctx.getBool("check-network");
+
+    std.debug.print("🔒 Security Scan (Scope: {s}, Min Severity: {s})\n\n", .{ scope, severity });
+
+    std.debug.print("🚨 Critical Issues (Immediate Action Required):\n");
+    std.debug.print("  1. Storage account with public access enabled\n");
+    std.debug.print("     Resource: myapp-storage\n");
+    std.debug.print("     Risk: Data exposure\n");
+
+    std.debug.print("\n⚠️  High Priority Issues:\n");
+    std.debug.print("  2. VM without disk encryption\n");
+    std.debug.print("     Resource: myapp-vm-1\n");
+    std.debug.print("     Risk: Data at rest not encrypted\n");
+
+    std.debug.print("  3. Network Security Group allows RDP from internet\n");
+    std.debug.print("     Resource: myapp-nsg\n");
+    std.debug.print("     Risk: Unauthorized access\n");
+
+    if (check_identity) {
+        std.debug.print("\n👤 Identity & Access Issues:\n");
+        std.debug.print("  4. Service principal with excessive permissions\n");
+        std.debug.print("     Principal: myapp-sp\n");
+        std.debug.print("     Risk: Privilege escalation\n");
+    }
+
+    if (check_network) {
+        std.debug.print("\n🌐 Network Security Issues:\n");
+        std.debug.print("  5. Application Gateway without WAF\n");
+        std.debug.print("     Resource: myapp-agw\n");
+        std.debug.print("     Risk: Web application attacks\n");
+    }
+
+    std.debug.print("\n📊 Security Score: 67/100\n");
+    std.debug.print("🎯 Target Score: 85/100\n");
+    std.debug.print("📈 Improvement: 12 recommendations to implement\n");
+}
+{{/if}}
+
+async fn queryCommand(ctx: flash.Context) !void {
+    const query = ctx.get("query").?;
+    const query_type = ctx.get("query-type") orelse "jmespath";
+    const output_format = ctx.get("output") orelse "table";
+
+    std.debug.print("🔍 Executing {s} query:\n", .{query_type});
+    std.debug.print("Query: {s}\n\n", .{query});
+
+    if (std.mem.eql(u8, output_format, "table")) {
+        std.debug.print("Name               Type                       Location    Status\n");
+        std.debug.print("─────────────────  ───────────────────────── ─────────── ─────────\n");
+        std.debug.print("myapp-vm           Microsoft.Compute/VMs      East US     Running\n");
+        std.debug.print("myapp-storage      Microsoft.Storage/Acc      East US     Available\n");
+    } else if (std.mem.eql(u8, output_format, "json")) {
+        std.debug.print("[\n");
+        std.debug.print("  {{\n");
+        std.debug.print("    \"name\": \"myapp-vm\",\n");
+        std.debug.print("    \"type\": \"Microsoft.Compute/virtualMachines\",\n");
+        std.debug.print("    \"location\": \"eastus\",\n");
+        std.debug.print("    \"status\": \"running\"\n");
+        std.debug.print("  }}\n");
+        std.debug.print("]\n");
+    }
+
+    std.debug.print("\n📊 Results: 2 resources found\n");
+}
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    try {{pascal_case project_name}}CLI.run(gpa.allocator());
+}

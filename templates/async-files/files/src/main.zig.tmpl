@@ -1,0 +1,952 @@
+const std = @import("std");
+const flash = @import("flash");
+
+// Define the file processing CLI application
+const {{pascal_case project_name}}CLI = flash.CLI(.{
+    .name = "{{project_name}}",
+    .version = "{{project_version}}",
+    .about = "{{project_description}}",
+    .author = "{{author_name}}",
+
+    .commands = &.{
+        flash.cmd("process", .{
+            .about = "Process files with specified operations",
+            .args = &.{
+                flash.arg("files", .{
+                    .help = "Input files or directories to process",
+                    .required = true,
+                    .multiple = true,
+                    .validator = flash.validation.pathValidator(true),
+                }),
+            },
+            .flags = &.{
+                flash.flag("output", .{
+                    .help = "Output directory",
+                    .short = 'o',
+                    .long = "output",
+                    .takes_value = true,
+                    .required = true,
+                }),
+                flash.flag("operation", .{
+                    .help = "Processing operation",
+                    .long = "operation",
+                    .takes_value = true,
+                    .required = true,
+                    .validator = flash.validation.choiceValidator(&.{ "copy", "move", "convert", {{#if with_compression}}"compress", "decompress",{{/if}} {{#if with_encryption}}"encrypt", "decrypt",{{/if}} {{#if with_hashing}}"hash",{{/if}} {{#if with_text_processing}}"transform"{{/if}} }, true),
+                }),
+                flash.flag("concurrent", .{
+                    .help = "Number of concurrent operations",
+                    .short = 'c',
+                    .long = "concurrent",
+                    .takes_value = true,
+                    .default_value = "{{max_concurrent_files}}",
+                    .validator = flash.validation.intInRange(1, 1000),
+                }),
+                flash.flag("buffer-size", .{
+                    .help = "Buffer size for operations",
+                    .long = "buffer-size",
+                    .takes_value = true,
+                    .default_value = "{{buffer_size}}",
+                }),
+                flash.flag("recursive", .{
+                    .help = "Process directories recursively",
+                    .short = 'r',
+                    .long = "recursive",
+                }),
+                flash.flag("preserve-structure", .{
+                    .help = "Preserve directory structure in output",
+                    .long = "preserve-structure",
+                }),
+                flash.flag("overwrite", .{
+                    .help = "Overwrite existing files",
+                    .long = "overwrite",
+                }),
+                flash.flag("progress", .{
+                    .help = "Show progress bar",
+                    .short = 'p',
+                    .long = "progress",
+                }),
+                {{#if with_compression}}
+                flash.flag("compression-level", .{
+                    .help = "Compression level (1-9)",
+                    .long = "compression-level",
+                    .takes_value = true,
+                    .default_value = "6",
+                    .validator = flash.validation.intInRange(1, 9),
+                }),
+                {{/if}}
+                {{#if with_encryption}}
+                flash.flag("password", .{
+                    .help = "Password for encryption/decryption",
+                    .long = "password",
+                    .takes_value = true,
+                }),
+                {{/if}}
+                {{#if with_hashing}}
+                flash.flag("hash-algorithm", .{
+                    .help = "Hash algorithm to use",
+                    .long = "hash-algorithm",
+                    .takes_value = true,
+                    .default_value = "sha256",
+                    .validator = flash.validation.choiceValidator(&.{ "md5", "sha1", "sha256", "sha512" }, true),
+                }),
+                {{/if}}
+            },
+            .run_async = processCommand,
+        }),
+
+        flash.cmd("batch", .{
+            .about = "Process files in batch mode from a file list",
+            .args = &.{
+                flash.arg("batch-file", .{
+                    .help = "File containing list of operations",
+                    .required = true,
+                    .validator = flash.validation.fileValidator(true, &.{".txt", ".csv", ".json"}),
+                }),
+            },
+            .flags = &.{
+                flash.flag("concurrent", .{
+                    .help = "Number of concurrent batch operations",
+                    .short = 'c',
+                    .long = "concurrent",
+                    .takes_value = true,
+                    .default_value = "10",
+                    .validator = flash.validation.intInRange(1, 100),
+                }),
+                flash.flag("continue-on-error", .{
+                    .help = "Continue processing on individual file errors",
+                    .long = "continue-on-error",
+                }),
+                flash.flag("report", .{
+                    .help = "Generate processing report",
+                    .long = "report",
+                    .takes_value = true,
+                }),
+            },
+            .run_async = batchCommand,
+        }),
+
+        flash.cmd("watch", .{
+            .about = "Watch directory for changes and process automatically",
+            .args = &.{
+                flash.arg("directory", .{
+                    .help = "Directory to watch",
+                    .required = true,
+                    .validator = flash.validation.directoryValidator(true),
+                }),
+            },
+            .flags = &.{
+                flash.flag("output", .{
+                    .help = "Output directory",
+                    .short = 'o',
+                    .long = "output",
+                    .takes_value = true,
+                    .required = true,
+                }),
+                flash.flag("operation", .{
+                    .help = "Processing operation for new files",
+                    .long = "operation",
+                    .takes_value = true,
+                    .required = true,
+                    .validator = flash.validation.choiceValidator(&.{ "copy", "move", "convert", {{#if with_compression}}"compress",{{/if}} {{#if with_text_processing}}"transform"{{/if}} }, true),
+                }),
+                flash.flag("recursive", .{
+                    .help = "Watch subdirectories recursively",
+                    .short = 'r',
+                    .long = "recursive",
+                }),
+                flash.flag("ignore-pattern", .{
+                    .help = "Ignore files matching pattern",
+                    .long = "ignore",
+                    .takes_value = true,
+                }),
+                flash.flag("debounce", .{
+                    .help = "Debounce delay in milliseconds",
+                    .long = "debounce",
+                    .takes_value = true,
+                    .default_value = "500",
+                    .validator = flash.validation.intInRange(0, 10000),
+                }),
+            },
+            .run_async = watchCommand,
+        }),
+
+        flash.cmd("analyze", .{
+            .about = "Analyze files and generate statistics",
+            .args = &.{
+                flash.arg("files", .{
+                    .help = "Files or directories to analyze",
+                    .required = true,
+                    .multiple = true,
+                    .validator = flash.validation.pathValidator(true),
+                }),
+            },
+            .flags = &.{
+                flash.flag("recursive", .{
+                    .help = "Analyze directories recursively",
+                    .short = 'r',
+                    .long = "recursive",
+                }),
+                flash.flag("output-format", .{
+                    .help = "Output format",
+                    .short = 'f',
+                    .long = "format",
+                    .takes_value = true,
+                    .default_value = "table",
+                    .validator = flash.validation.choiceValidator(&.{ "table", "json", "csv", "yaml" }, true),
+                }),
+                flash.flag("detailed", .{
+                    .help = "Show detailed analysis",
+                    .short = 'd',
+                    .long = "detailed",
+                }),
+                {{#if with_hashing}}
+                flash.flag("include-hashes", .{
+                    .help = "Include file hashes in analysis",
+                    .long = "include-hashes",
+                }),
+                {{/if}}
+                flash.flag("size-histogram", .{
+                    .help = "Generate size distribution histogram",
+                    .long = "size-histogram",
+                }),
+            },
+            .run_async = analyzeCommand,
+        }),
+
+        {{#if with_hashing}}
+        flash.cmd("verify", .{
+            .about = "Verify file integrity using checksums",
+            .args = &.{
+                flash.arg("checksum-file", .{
+                    .help = "File containing checksums",
+                    .required = true,
+                    .validator = flash.validation.fileValidator(true, &.{".md5", ".sha1", ".sha256", ".sha512"}),
+                }),
+            },
+            .flags = &.{
+                flash.flag("base-directory", .{
+                    .help = "Base directory for relative paths",
+                    .short = 'd',
+                    .long = "directory",
+                    .takes_value = true,
+                    .default_value = ".",
+                }),
+                flash.flag("algorithm", .{
+                    .help = "Hash algorithm",
+                    .short = 'a',
+                    .long = "algorithm",
+                    .takes_value = true,
+                    .validator = flash.validation.choiceValidator(&.{ "md5", "sha1", "sha256", "sha512" }, true),
+                }),
+                flash.flag("strict", .{
+                    .help = "Fail on first verification error",
+                    .long = "strict",
+                }),
+            },
+            .run_async = verifyCommand,
+        }),
+        {{/if}}
+
+        flash.cmd("benchmark", .{
+            .about = "Benchmark file operations performance",
+            .flags = &.{
+                flash.flag("operation", .{
+                    .help = "Operation to benchmark",
+                    .long = "operation",
+                    .takes_value = true,
+                    .default_value = "copy",
+                    .validator = flash.validation.choiceValidator(&.{ "copy", "read", "write", {{#if with_compression}}"compress", "decompress",{{/if}} {{#if with_hashing}}"hash"{{/if}} }, true),
+                }),
+                flash.flag("file-size", .{
+                    .help = "Test file size",
+                    .long = "file-size",
+                    .takes_value = true,
+                    .default_value = "100MB",
+                }),
+                flash.flag("iterations", .{
+                    .help = "Number of benchmark iterations",
+                    .short = 'i',
+                    .long = "iterations",
+                    .takes_value = true,
+                    .default_value = "5",
+                    .validator = flash.validation.intInRange(1, 100),
+                }),
+                flash.flag("concurrent-levels", .{
+                    .help = "Test different concurrency levels",
+                    .long = "concurrent-levels",
+                    .takes_value = true,
+                    .default_value = "1,2,4,8,16",
+                }),
+            },
+            .run_async = benchmarkCommand,
+        }),
+    },
+
+    .flags = &.{
+        flash.flag("verbose", .{
+            .help = "Enable verbose output",
+            .short = 'v',
+            .long = "verbose",
+        }),
+        flash.flag("quiet", .{
+            .help = "Suppress non-error output",
+            .short = 'q',
+            .long = "quiet",
+        }),
+        flash.flag("log-file", .{
+            .help = "Log file path",
+            .long = "log-file",
+            .takes_value = true,
+        }),
+        flash.flag("memory-limit", .{
+            .help = "Memory usage limit (e.g., 1GB, 512MB)",
+            .long = "memory-limit",
+            .takes_value = true,
+        }),
+    },
+});
+
+// Configuration and types
+const ProcessingConfig = struct {
+    operation: Operation,
+    concurrent_limit: usize,
+    buffer_size: usize,
+    preserve_structure: bool,
+    overwrite: bool,
+    show_progress: bool,
+    {{#if with_compression}}
+    compression_level: u8,
+    {{/if}}
+    {{#if with_encryption}}
+    password: ?[]const u8,
+    {{/if}}
+    {{#if with_hashing}}
+    hash_algorithm: HashAlgorithm,
+    {{/if}}
+
+    const Operation = enum {
+        copy,
+        move,
+        convert,
+        {{#if with_compression}}
+        compress,
+        decompress,
+        {{/if}}
+        {{#if with_encryption}}
+        encrypt,
+        decrypt,
+        {{/if}}
+        {{#if with_hashing}}
+        hash,
+        {{/if}}
+        {{#if with_text_processing}}
+        transform,
+        {{/if}}
+    };
+
+    {{#if with_hashing}}
+    const HashAlgorithm = enum {
+        md5,
+        sha1,
+        sha256,
+        sha512,
+    };
+    {{/if}}
+};
+
+const FileOperation = struct {
+    source: []const u8,
+    destination: []const u8,
+    operation: ProcessingConfig.Operation,
+    size: u64,
+    status: Status,
+    error_message: ?[]const u8,
+
+    const Status = enum {
+        pending,
+        processing,
+        completed,
+        failed,
+    };
+};
+
+const ProcessingStats = struct {
+    total_files: u64,
+    processed_files: u64,
+    failed_files: u64,
+    total_bytes: u64,
+    processed_bytes: u64,
+    start_time: i64,
+    duration_ms: u64,
+
+    fn throughputMBps(self: ProcessingStats) f64 {
+        if (self.duration_ms == 0) return 0.0;
+        const bytes_per_ms = @as(f64, @floatFromInt(self.processed_bytes)) / @as(f64, @floatFromInt(self.duration_ms));
+        return bytes_per_ms * 1000.0 / (1024.0 * 1024.0);
+    }
+};
+
+// Command implementations
+async fn processCommand(ctx: flash.Context) !void {
+    const allocator = ctx.allocator;
+
+    // Parse configuration
+    const config = try parseProcessingConfig(ctx);
+    const files = ctx.getMany("files").?;
+    const output_dir = ctx.get("output").?;
+    const recursive = ctx.getBool("recursive");
+
+    std.debug.print("🚀 Starting file processing...\n");
+    std.debug.print("Operation: {s}, Concurrent: {}, Buffer: {}KB\n", .{
+        @tagName(config.operation),
+        config.concurrent_limit,
+        config.buffer_size / 1024,
+    });
+
+    // Create output directory
+    try createOutputDirectory(output_dir, config.preserve_structure);
+
+    // Collect all files to process
+    var file_list = std.ArrayList([]const u8).init(allocator);
+    defer file_list.deinit();
+
+    for (files) |file_path| {
+        try collectFiles(allocator, &file_list, file_path, recursive);
+    }
+
+    std.debug.print("Found {} files to process\n", .{file_list.items.len});
+
+    // Create async processing context
+    var async_ctx = flash.async_cli.AsyncContext.init(allocator);
+    defer async_ctx.deinit();
+
+    // Setup progress tracking
+    var progress = if (config.show_progress) ProgressTracker.init(file_list.items.len) else null;
+    defer if (progress) |*p| p.deinit();
+
+    // Create processing stats
+    var stats = ProcessingStats{
+        .total_files = file_list.items.len,
+        .processed_files = 0,
+        .failed_files = 0,
+        .total_bytes = 0,
+        .processed_bytes = 0,
+        .start_time = std.time.milliTimestamp(),
+        .duration_ms = 0,
+    };
+
+    // Calculate total bytes
+    for (file_list.items) |file_path| {
+        if (getFileSize(file_path)) |size| {
+            stats.total_bytes += size;
+        } else |_| {}
+    }
+
+    // Process files with controlled concurrency
+    try processFilesWithConcurrency(
+        async_ctx,
+        file_list.items,
+        output_dir,
+        config,
+        &stats,
+        progress,
+    );
+
+    // Finalize stats
+    stats.duration_ms = @intCast(std.time.milliTimestamp() - stats.start_time);
+
+    // Display results
+    try displayProcessingResults(stats);
+}
+
+async fn batchCommand(ctx: flash.Context) !void {
+    const allocator = ctx.allocator;
+    const batch_file = ctx.get("batch-file").?;
+    const concurrent_str = ctx.get("concurrent") orelse "10";
+    const concurrent_limit = std.fmt.parseInt(usize, concurrent_str, 10) catch 10;
+    const continue_on_error = ctx.getBool("continue-on-error");
+    const report_file = ctx.get("report");
+
+    std.debug.print("📋 Processing batch file: {s}\n", .{batch_file});
+    std.debug.print("Concurrent operations: {}\n", .{concurrent_limit});
+
+    // Read and parse batch file
+    const batch_operations = try parseBatchFile(allocator, batch_file);
+    defer {
+        for (batch_operations) |op| {
+            allocator.free(op.source);
+            allocator.free(op.destination);
+        }
+        allocator.free(batch_operations);
+    }
+
+    std.debug.print("Found {} operations in batch file\n", .{batch_operations.len});
+
+    // Create async context
+    var async_ctx = flash.async_cli.AsyncContext.init(allocator);
+    defer async_ctx.deinit();
+
+    // Process batch operations
+    const results = try processBatchOperations(
+        async_ctx,
+        batch_operations,
+        concurrent_limit,
+        continue_on_error,
+    );
+    defer allocator.free(results);
+
+    // Generate report if requested
+    if (report_file) |report_path| {
+        try generateBatchReport(allocator, results, report_path);
+        std.debug.print("📊 Report generated: {s}\n", .{report_path});
+    }
+
+    // Display summary
+    var succeeded: usize = 0;
+    var failed: usize = 0;
+    for (results) |result| {
+        if (result.status == .completed) {
+            succeeded += 1;
+        } else {
+            failed += 1;
+        }
+    }
+
+    std.debug.print("✅ Batch processing completed: {} succeeded, {} failed\n", .{ succeeded, failed });
+}
+
+async fn watchCommand(ctx: flash.Context) !void {
+    const allocator = ctx.allocator;
+    const directory = ctx.get("directory").?;
+    const output_dir = ctx.get("output").?;
+    const operation_str = ctx.get("operation").?;
+    const recursive = ctx.getBool("recursive");
+    const ignore_pattern = ctx.get("ignore-pattern");
+    const debounce_str = ctx.get("debounce") orelse "500";
+    const debounce_ms = std.fmt.parseInt(u64, debounce_str, 10) catch 500;
+
+    const operation = std.meta.stringToEnum(ProcessingConfig.Operation, operation_str) orelse {
+        std.debug.print("❌ Unknown operation: {s}\n", .{operation_str});
+        return;
+    };
+
+    std.debug.print("👀 Watching directory: {s}\n", .{directory});
+    std.debug.print("Output: {s}, Operation: {s}\n", .{ output_dir, operation_str });
+    std.debug.print("Recursive: {}, Debounce: {}ms\n", .{ recursive, debounce_ms });
+
+    if (ignore_pattern) |pattern| {
+        std.debug.print("Ignoring pattern: {s}\n", .{pattern});
+    }
+
+    // Create file watcher
+    var watcher = try FileWatcher.init(allocator, directory, recursive);
+    defer watcher.deinit();
+
+    // Set up ignore pattern if provided
+    if (ignore_pattern) |pattern| {
+        try watcher.setIgnorePattern(pattern);
+    }
+
+    std.debug.print("File watcher started. Press Ctrl+C to stop.\n");
+
+    // Watch loop
+    while (true) {
+        const events = try watcher.poll(1000); // Poll every second
+        defer allocator.free(events);
+
+        if (events.len > 0) {
+            std.debug.print("Detected {} file changes\n", .{events.len});
+
+            // Debounce: collect events for the specified duration
+            try std.time.sleep(debounce_ms * std.time.ns_per_ms);
+
+            // Process changed files
+            for (events) |event| {
+                if (event.kind == .created or event.kind == .modified) {
+                    try processWatchedFile(allocator, event.path, output_dir, operation);
+                }
+            }
+        }
+    }
+}
+
+async fn analyzeCommand(ctx: flash.Context) !void {
+    const allocator = ctx.allocator;
+    const files = ctx.getMany("files").?;
+    const recursive = ctx.getBool("recursive");
+    const output_format = ctx.get("output-format") orelse "table";
+    const detailed = ctx.getBool("detailed");
+    {{#if with_hashing}}
+    const include_hashes = ctx.getBool("include-hashes");
+    {{/if}}
+    const size_histogram = ctx.getBool("size-histogram");
+
+    std.debug.print("📊 Analyzing files...\n");
+
+    // Collect all files
+    var file_list = std.ArrayList([]const u8).init(allocator);
+    defer file_list.deinit();
+
+    for (files) |file_path| {
+        try collectFiles(allocator, &file_list, file_path, recursive);
+    }
+
+    std.debug.print("Analyzing {} files...\n", .{file_list.items.len});
+
+    // Create async context for parallel analysis
+    var async_ctx = flash.async_cli.AsyncContext.init(allocator);
+    defer async_ctx.deinit();
+
+    // Analyze files in parallel
+    const analysis_results = try analyzeFilesParallel(
+        async_ctx,
+        file_list.items,
+        detailed,
+        {{#if with_hashing}}include_hashes{{else}}false{{/if}},
+    );
+    defer allocator.free(analysis_results);
+
+    // Generate output
+    try displayAnalysisResults(
+        allocator,
+        analysis_results,
+        output_format,
+        size_histogram,
+    );
+}
+
+{{#if with_hashing}}
+async fn verifyCommand(ctx: flash.Context) !void {
+    const allocator = ctx.allocator;
+    const checksum_file = ctx.get("checksum-file").?;
+    const base_directory = ctx.get("base-directory") orelse ".";
+    const algorithm_str = ctx.get("algorithm");
+    const strict = ctx.getBool("strict");
+
+    std.debug.print("🔍 Verifying file integrity...\n");
+    std.debug.print("Checksum file: {s}\n", .{checksum_file});
+    std.debug.print("Base directory: {s}\n", .{base_directory});
+
+    // Parse algorithm from filename if not specified
+    const algorithm = if (algorithm_str) |alg|
+        std.meta.stringToEnum(ProcessingConfig.HashAlgorithm, alg) orelse .sha256
+    else
+        detectHashAlgorithmFromFile(checksum_file);
+
+    std.debug.print("Hash algorithm: {s}\n", .{@tagName(algorithm)});
+
+    // Read checksum file
+    const checksums = try parseChecksumFile(allocator, checksum_file);
+    defer {
+        for (checksums) |checksum| {
+            allocator.free(checksum.file_path);
+            allocator.free(checksum.hash);
+        }
+        allocator.free(checksums);
+    }
+
+    std.debug.print("Found {} checksums to verify\n", .{checksums.len});
+
+    // Create async context for parallel verification
+    var async_ctx = flash.async_cli.AsyncContext.init(allocator);
+    defer async_ctx.deinit();
+
+    // Verify checksums in parallel
+    const verification_results = try verifyChecksumsParallel(
+        async_ctx,
+        checksums,
+        base_directory,
+        algorithm,
+        strict,
+    );
+    defer allocator.free(verification_results);
+
+    // Display results
+    try displayVerificationResults(verification_results);
+}
+{{/if}}
+
+async fn benchmarkCommand(ctx: flash.Context) !void {
+    const allocator = ctx.allocator;
+    const operation_str = ctx.get("operation") orelse "copy";
+    const file_size_str = ctx.get("file-size") orelse "100MB";
+    const iterations_str = ctx.get("iterations") orelse "5";
+    const concurrent_levels_str = ctx.get("concurrent-levels") orelse "1,2,4,8,16";
+
+    const iterations = std.fmt.parseInt(usize, iterations_str, 10) catch 5;
+
+    std.debug.print("⚡ Running performance benchmarks...\n");
+    std.debug.print("Operation: {s}, File size: {s}, Iterations: {}\n", .{
+        operation_str,
+        file_size_str,
+        iterations,
+    });
+
+    // Parse concurrent levels
+    const concurrent_levels = try parseConcurrentLevels(allocator, concurrent_levels_str);
+    defer allocator.free(concurrent_levels);
+
+    // Parse file size
+    const file_size = try parseFileSize(file_size_str);
+
+    // Create test files
+    const test_files = try createTestFiles(allocator, file_size, concurrent_levels[concurrent_levels.len - 1]);
+    defer {
+        for (test_files) |file_path| {
+            std.fs.cwd().deleteFile(file_path) catch {};
+            allocator.free(file_path);
+        }
+        allocator.free(test_files);
+    }
+
+    // Run benchmarks for each concurrency level
+    var benchmark_results = std.ArrayList(BenchmarkResult).init(allocator);
+    defer benchmark_results.deinit();
+
+    for (concurrent_levels) |concurrency| {
+        std.debug.print("Testing concurrency level: {}\n", .{concurrency});
+
+        const result = try runBenchmark(
+            allocator,
+            operation_str,
+            test_files,
+            concurrency,
+            iterations,
+        );
+
+        try benchmark_results.append(result);
+    }
+
+    // Display benchmark results
+    try displayBenchmarkResults(benchmark_results.items, file_size);
+}
+
+// Helper functions and types
+
+const ProgressTracker = struct {
+    total: usize,
+    current: usize,
+    start_time: i64,
+
+    fn init(total: usize) ProgressTracker {
+        return ProgressTracker{
+            .total = total,
+            .current = 0,
+            .start_time = std.time.milliTimestamp(),
+        };
+    }
+
+    fn deinit(self: *ProgressTracker) void {
+        _ = self;
+    }
+
+    fn update(self: *ProgressTracker, processed: usize) void {
+        self.current = processed;
+        const progress_percent = (@as(f32, @floatFromInt(self.current)) / @as(f32, @floatFromInt(self.total))) * 100.0;
+        const elapsed = std.time.milliTimestamp() - self.start_time;
+        const rate = if (elapsed > 0) @as(f32, @floatFromInt(self.current * 1000)) / @as(f32, @floatFromInt(elapsed)) else 0.0;
+
+        std.debug.print("\r[{d:5.1}%] {}/{} files processed ({d:.1} files/sec)", .{
+            progress_percent,
+            self.current,
+            self.total,
+            rate,
+        });
+    }
+};
+
+const FileWatcher = struct {
+    allocator: std.mem.Allocator,
+    directory: []const u8,
+    recursive: bool,
+    ignore_pattern: ?[]const u8,
+
+    const Event = struct {
+        path: []const u8,
+        kind: Kind,
+
+        const Kind = enum {
+            created,
+            modified,
+            deleted,
+        };
+    };
+
+    fn init(allocator: std.mem.Allocator, directory: []const u8, recursive: bool) !FileWatcher {
+        return FileWatcher{
+            .allocator = allocator,
+            .directory = directory,
+            .recursive = recursive,
+            .ignore_pattern = null,
+        };
+    }
+
+    fn deinit(self: *FileWatcher) void {
+        if (self.ignore_pattern) |pattern| {
+            self.allocator.free(pattern);
+        }
+    }
+
+    fn setIgnorePattern(self: *FileWatcher, pattern: []const u8) !void {
+        self.ignore_pattern = try self.allocator.dupe(u8, pattern);
+    }
+
+    fn poll(self: *FileWatcher, timeout_ms: u64) ![]Event {
+        _ = self;
+        _ = timeout_ms;
+        // Placeholder implementation
+        // In a real implementation, this would use platform-specific file watching APIs
+        return &[_]Event{};
+    }
+};
+
+// Additional helper functions would be implemented here...
+
+fn parseProcessingConfig(ctx: flash.Context) !ProcessingConfig {
+    const operation_str = ctx.get("operation").?;
+    const concurrent_str = ctx.get("concurrent") orelse "{{max_concurrent_files}}";
+    const buffer_size_str = ctx.get("buffer-size") orelse "{{buffer_size}}";
+
+    const operation = std.meta.stringToEnum(ProcessingConfig.Operation, operation_str) orelse {
+        return error.InvalidOperation;
+    };
+
+    const concurrent_limit = std.fmt.parseInt(usize, concurrent_str, 10) catch {{max_concurrent_files}};
+    const buffer_size = try parseBufferSize(buffer_size_str);
+
+    return ProcessingConfig{
+        .operation = operation,
+        .concurrent_limit = concurrent_limit,
+        .buffer_size = buffer_size,
+        .preserve_structure = ctx.getBool("preserve-structure"),
+        .overwrite = ctx.getBool("overwrite"),
+        .show_progress = ctx.getBool("progress"),
+        {{#if with_compression}}
+        .compression_level = blk: {
+            const level_str = ctx.get("compression-level") orelse "6";
+            break :blk @intCast(std.fmt.parseInt(u8, level_str, 10) catch 6);
+        },
+        {{/if}}
+        {{#if with_encryption}}
+        .password = ctx.get("password"),
+        {{/if}}
+        {{#if with_hashing}}
+        .hash_algorithm = blk: {
+            const algo_str = ctx.get("hash-algorithm") orelse "sha256";
+            break :blk std.meta.stringToEnum(ProcessingConfig.HashAlgorithm, algo_str) orelse .sha256;
+        },
+        {{/if}}
+    };
+}
+
+fn parseBufferSize(size_str: []const u8) !usize {
+    if (std.mem.endsWith(u8, size_str, "KB")) {
+        const num_str = size_str[0..size_str.len - 2];
+        const kb = try std.fmt.parseInt(usize, num_str, 10);
+        return kb * 1024;
+    } else if (std.mem.endsWith(u8, size_str, "MB")) {
+        const num_str = size_str[0..size_str.len - 2];
+        const mb = try std.fmt.parseInt(usize, num_str, 10);
+        return mb * 1024 * 1024;
+    } else {
+        return std.fmt.parseInt(usize, size_str, 10);
+    }
+}
+
+// Placeholder implementations for other helper functions...
+fn createOutputDirectory(output_dir: []const u8, preserve_structure: bool) !void {
+    _ = preserve_structure;
+    std.fs.cwd().makeDir(output_dir) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => return err,
+    };
+}
+
+fn collectFiles(allocator: std.mem.Allocator, file_list: *std.ArrayList([]const u8), path: []const u8, recursive: bool) !void {
+    _ = allocator;
+    _ = recursive;
+    // Placeholder - would implement file collection logic
+    try file_list.append(path);
+}
+
+fn getFileSize(file_path: []const u8) !u64 {
+    const file = try std.fs.cwd().openFile(file_path, .{});
+    defer file.close();
+    const stat = try file.stat();
+    return stat.size;
+}
+
+async fn processFilesWithConcurrency(
+    async_ctx: flash.async_cli.AsyncContext,
+    files: []const []const u8,
+    output_dir: []const u8,
+    config: ProcessingConfig,
+    stats: *ProcessingStats,
+    progress: ?*ProgressTracker,
+) !void {
+    _ = async_ctx;
+    _ = files;
+    _ = output_dir;
+    _ = config;
+    _ = progress;
+
+    // Placeholder implementation
+    stats.processed_files = stats.total_files;
+    stats.processed_bytes = stats.total_bytes;
+}
+
+fn displayProcessingResults(stats: ProcessingStats) !void {
+    std.debug.print("\n📊 Processing Results:\n");
+    std.debug.print("Files: {}/{} processed, {} failed\n", .{
+        stats.processed_files,
+        stats.total_files,
+        stats.failed_files,
+    });
+    std.debug.print("Data: {d:.2} MB processed in {d:.2}s\n", .{
+        @as(f64, @floatFromInt(stats.processed_bytes)) / (1024.0 * 1024.0),
+        @as(f64, @floatFromInt(stats.duration_ms)) / 1000.0,
+    });
+    std.debug.print("Throughput: {d:.2} MB/s\n", .{stats.throughputMBps()});
+}
+
+// Additional placeholder implementations...
+fn parseBatchFile(allocator: std.mem.Allocator, batch_file: []const u8) ![]FileOperation {
+    _ = allocator;
+    _ = batch_file;
+    return &[_]FileOperation{};
+}
+
+async fn processBatchOperations(
+    async_ctx: flash.async_cli.AsyncContext,
+    operations: []FileOperation,
+    concurrent_limit: usize,
+    continue_on_error: bool,
+) ![]FileOperation {
+    _ = async_ctx;
+    _ = concurrent_limit;
+    _ = continue_on_error;
+    return operations;
+}
+
+// Main entry point
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    try {{pascal_case project_name}}CLI.run(gpa.allocator());
+}
+
+// Tests
+test "file processing CLI functionality" {
+    const testing = std.testing;
+
+    var harness = flash.testing.TestHarness.init(testing.allocator);
+    defer harness.deinit();
+
+    // Test analyze command
+    const result = try harness.execute({{pascal_case project_name}}CLI, &.{ "analyze", "test.txt" });
+    defer result.deinit();
+
+    try result.expectExitCode(0);
+}

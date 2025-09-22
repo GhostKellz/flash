@@ -1,0 +1,841 @@
+const std = @import("std");
+const flash = @import("flash");
+
+// {{project_name}} - High-performance file sync and transfer tool
+const {{pascal_case project_name}}CLI = flash.CLI(.{
+    .name = "{{project_name}}",
+    .version = "{{project_version}}",
+    .about = "{{project_description}}",
+    .author = "{{author_name}}",
+
+    .commands = &.{
+        // Copy/sync files: {{project_name}} sync
+        flash.cmd("sync", .{
+            .about = "Synchronize files between source and destination",
+            .args = &.{
+                flash.arg("source", .{
+                    .help = "Source path or URL",
+                    .required = true,
+                }),
+                flash.arg("destination", .{
+                    .help = "Destination path or URL",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("delete", .{
+                    .help = "Delete files in destination not in source",
+                    .long = "delete",
+                }),
+                flash.flag("update", .{
+                    .help = "Skip files that are newer on destination",
+                    .short = 'u',
+                    .long = "update",
+                }),
+                flash.flag("checksum", .{
+                    .help = "Skip based on checksum, not mod-time & size",
+                    .short = 'c',
+                    .long = "checksum",
+                }),
+                flash.flag("size-only", .{
+                    .help = "Skip based on size only",
+                    .long = "size-only",
+                }),
+                flash.flag("ignore-times", .{
+                    .help = "Don't skip files that match size and time",
+                    .long = "ignore-times",
+                }),
+                flash.flag("dry-run", .{
+                    .help = "Show what would be transferred without doing it",
+                    .short = 'n',
+                    .long = "dry-run",
+                }),
+                flash.flag("interactive", .{
+                    .help = "Ask before transferring each file",
+                    .short = 'i',
+                    .long = "interactive",
+                }),
+                flash.flag("transfers", .{
+                    .help = "Number of file transfers to run in parallel",
+                    .long = "transfers",
+                    .takes_value = true,
+                    .default_value = "{{max_concurrent_transfers}}",
+                    .validator = flash.validation.intInRange(1, 256),
+                }),
+                flash.flag("checkers", .{
+                    .help = "Number of checkers to run in parallel",
+                    .long = "checkers",
+                    .takes_value = true,
+                    .default_value = "8",
+                    .validator = flash.validation.intInRange(1, 64),
+                }),
+                flash.flag("bandwidth", .{
+                    .help = "Bandwidth limit (e.g., 10M, 1G)",
+                    .long = "bwlimit",
+                    .takes_value = true,
+                }),
+                flash.flag("retries", .{
+                    .help = "Retry operations this many times",
+                    .long = "retries",
+                    .takes_value = true,
+                    .default_value = "3",
+                    .validator = flash.validation.intInRange(0, 100),
+                }),
+                flash.flag("low-level-retries", .{
+                    .help = "Number of low level retries",
+                    .long = "low-level-retries",
+                    .takes_value = true,
+                    .default_value = "10",
+                }),
+                flash.flag("ignore-existing", .{
+                    .help = "Skip all files that exist on destination",
+                    .long = "ignore-existing",
+                }),
+                flash.flag("ignore-errors", .{
+                    .help = "Delete even if there are I/O errors",
+                    .long = "ignore-errors",
+                }),
+                flash.flag("max-delete", .{
+                    .help = "Maximum number of deletes to allow",
+                    .long = "max-delete",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(0, 1000000),
+                }),
+                flash.flag("track-renames", .{
+                    .help = "Track file renames",
+                    .long = "track-renames",
+                }),
+                {{#if with_compression}}
+                flash.flag("compress", .{
+                    .help = "Compress data during transfer",
+                    .short = 'z',
+                    .long = "compress",
+                }),
+                flash.flag("compress-level", .{
+                    .help = "Compression level (1-9)",
+                    .long = "compress-level",
+                    .takes_value = true,
+                    .default_value = "6",
+                    .validator = flash.validation.intInRange(1, 9),
+                }),
+                {{/if}}
+                {{#if with_encryption}}
+                flash.flag("crypt-password", .{
+                    .help = "Password for encryption",
+                    .long = "crypt-password",
+                    .takes_value = true,
+                }),
+                flash.flag("crypt-password2", .{
+                    .help = "Password for salt",
+                    .long = "crypt-password2",
+                    .takes_value = true,
+                }),
+                {{/if}}
+                flash.flag("include", .{
+                    .help = "Include files matching pattern",
+                    .long = "include",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("exclude", .{
+                    .help = "Exclude files matching pattern",
+                    .long = "exclude",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("exclude-from", .{
+                    .help = "Read exclude patterns from file",
+                    .long = "exclude-from",
+                    .takes_value = true,
+                }),
+                flash.flag("include-from", .{
+                    .help = "Read include patterns from file",
+                    .long = "include-from",
+                    .takes_value = true,
+                }),
+                flash.flag("filter", .{
+                    .help = "Add a file-filtering rule",
+                    .long = "filter",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("filter-from", .{
+                    .help = "Read filtering patterns from file",
+                    .long = "filter-from",
+                    .takes_value = true,
+                }),
+                flash.flag("progress", .{
+                    .help = "Show progress during transfer",
+                    .short = 'P',
+                    .long = "progress",
+                }),
+                flash.flag("stats", .{
+                    .help = "Give stats on transferred files",
+                    .long = "stats",
+                    .takes_value = true,
+                    .default_value = "1s",
+                }),
+                flash.flag("stats-one-line", .{
+                    .help = "Give stats as one line",
+                    .long = "stats-one-line",
+                }),
+                flash.flag("log-level", .{
+                    .help = "Log level (DEBUG, INFO, NOTICE, ERROR)",
+                    .long = "log-level",
+                    .takes_value = true,
+                    .default_value = "NOTICE",
+                    .validator = flash.validation.choiceValidator(&.{ "DEBUG", "INFO", "NOTICE", "ERROR" }, true),
+                }),
+                flash.flag("log-file", .{
+                    .help = "Log everything to this file",
+                    .long = "log-file",
+                    .takes_value = true,
+                }),
+            },
+            .run_async = syncCommand,
+        }),
+
+        // Copy files: {{project_name}} copy
+        flash.cmd("copy", .{
+            .about = "Copy files from source to destination, skipping identical files",
+            .args = &.{
+                flash.arg("source", .{
+                    .help = "Source path or URL",
+                    .required = true,
+                }),
+                flash.arg("destination", .{
+                    .help = "Destination path or URL",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                // Inherit most flags from sync
+                flash.flag("create-empty-src-dirs", .{
+                    .help = "Create empty source dirs on destination",
+                    .long = "create-empty-src-dirs",
+                }),
+                flash.flag("ignore-existing", .{
+                    .help = "Skip all files that exist on destination",
+                    .long = "ignore-existing",
+                }),
+                flash.flag("transfers", .{
+                    .help = "Number of file transfers to run in parallel",
+                    .long = "transfers",
+                    .takes_value = true,
+                    .default_value = "{{max_concurrent_transfers}}",
+                }),
+                flash.flag("progress", .{
+                    .help = "Show progress during transfer",
+                    .short = 'P',
+                    .long = "progress",
+                }),
+            },
+            .run_async = copyCommand,
+        }),
+
+        // Move files: {{project_name}} move
+        flash.cmd("move", .{
+            .about = "Move files from source to destination",
+            .args = &.{
+                flash.arg("source", .{
+                    .help = "Source path or URL",
+                    .required = true,
+                }),
+                flash.arg("destination", .{
+                    .help = "Destination path or URL",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("delete-empty-src-dirs", .{
+                    .help = "Delete empty source directories",
+                    .long = "delete-empty-src-dirs",
+                }),
+                flash.flag("create-empty-src-dirs", .{
+                    .help = "Create empty source dirs on destination",
+                    .long = "create-empty-src-dirs",
+                }),
+                flash.flag("transfers", .{
+                    .help = "Number of file transfers to run in parallel",
+                    .long = "transfers",
+                    .takes_value = true,
+                    .default_value = "{{max_concurrent_transfers}}",
+                }),
+            },
+            .run_async = moveCommand,
+        }),
+
+        {{#if with_cloud_storage}}
+        // List cloud storage
+        flash.cmd("ls", .{
+            .about = "List objects in remote storage",
+            .args = &.{
+                flash.arg("remote", .{
+                    .help = "Remote path or URL",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("long", .{
+                    .help = "Long listing format",
+                    .short = 'l',
+                    .long = "long",
+                }),
+                flash.flag("human-readable", .{
+                    .help = "Human readable sizes",
+                    .short = 'h',
+                    .long = "human-readable",
+                }),
+                flash.flag("recursive", .{
+                    .help = "Recurse into subdirectories",
+                    .short = 'R',
+                    .long = "recursive",
+                }),
+                flash.flag("dirs-only", .{
+                    .help = "List directories only",
+                    .long = "dirs-only",
+                }),
+                flash.flag("files-only", .{
+                    .help = "List files only",
+                    .long = "files-only",
+                }),
+                flash.flag("max-age", .{
+                    .help = "Maximum age of files to list",
+                    .long = "max-age",
+                    .takes_value = true,
+                }),
+                flash.flag("min-age", .{
+                    .help = "Minimum age of files to list",
+                    .long = "min-age",
+                    .takes_value = true,
+                }),
+                flash.flag("max-size", .{
+                    .help = "Maximum size of files to list",
+                    .long = "max-size",
+                    .takes_value = true,
+                }),
+                flash.flag("min-size", .{
+                    .help = "Minimum size of files to list",
+                    .long = "min-size",
+                    .takes_value = true,
+                }),
+            },
+            .run_async = lsCommand,
+        }),
+
+        // Remote operations
+        flash.cmd("remote", .{
+            .about = "Manage cloud storage remotes",
+            .commands = &.{
+                flash.cmd("config", .{
+                    .about = "Configure a new remote",
+                    .args = &.{
+                        flash.arg("name", .{
+                            .help = "Remote name",
+                            .required = true,
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("type", .{
+                            .help = "Remote type (s3, azureblob, gcs, etc.)",
+                            .short = 't',
+                            .long = "type",
+                            .takes_value = true,
+                            .required = true,
+                            .validator = flash.validation.choiceValidator(&.{
+                                "s3", "azureblob", "gcs", "dropbox", "onedrive",
+                                "sftp", "ftp", "webdav", "local"
+                            }, true),
+                        }),
+                        flash.flag("interactive", .{
+                            .help = "Interactive configuration",
+                            .short = 'i',
+                            .long = "interactive",
+                        }),
+                    },
+                    .run_async = remoteConfigCommand,
+                }),
+                flash.cmd("list", .{
+                    .about = "List configured remotes",
+                    .flags = &.{
+                        flash.flag("long", .{
+                            .help = "Show detailed information",
+                            .short = 'l',
+                            .long = "long",
+                        }),
+                    },
+                    .run_async = remoteListCommand,
+                }),
+                flash.cmd("delete", .{
+                    .about = "Delete a remote",
+                    .args = &.{
+                        flash.arg("name", .{
+                            .help = "Remote name to delete",
+                            .required = true,
+                        }),
+                    },
+                    .run_async = remoteDeleteCommand,
+                }),
+                flash.cmd("test", .{
+                    .about = "Test a remote connection",
+                    .args = &.{
+                        flash.arg("name", .{
+                            .help = "Remote name to test",
+                            .required = true,
+                        }),
+                    },
+                    .run_async = remoteTestCommand,
+                }),
+            },
+        }),
+        {{/if}}
+
+        // Mount remote as filesystem
+        flash.cmd("mount", .{
+            .about = "Mount remote as local filesystem (FUSE)",
+            .args = &.{
+                flash.arg("remote", .{
+                    .help = "Remote path to mount",
+                    .required = true,
+                }),
+                flash.arg("mountpoint", .{
+                    .help = "Local mount point",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("read-only", .{
+                    .help = "Mount read-only",
+                    .long = "read-only",
+                }),
+                flash.flag("allow-other", .{
+                    .help = "Allow other users to access",
+                    .long = "allow-other",
+                }),
+                flash.flag("allow-root", .{
+                    .help = "Allow root to access",
+                    .long = "allow-root",
+                }),
+                flash.flag("cache-mode", .{
+                    .help = "Cache mode (off, minimal, writes, full)",
+                    .long = "cache-mode",
+                    .takes_value = true,
+                    .default_value = "writes",
+                    .validator = flash.validation.choiceValidator(&.{ "off", "minimal", "writes", "full" }, true),
+                }),
+                flash.flag("cache-dir", .{
+                    .help = "Directory to use for caching",
+                    .long = "cache-dir",
+                    .takes_value = true,
+                }),
+                flash.flag("cache-chunk-size", .{
+                    .help = "Chunk size for caching",
+                    .long = "cache-chunk-size",
+                    .takes_value = true,
+                    .default_value = "128M",
+                }),
+                flash.flag("daemon", .{
+                    .help = "Run mount in background",
+                    .long = "daemon",
+                }),
+                flash.flag("daemon-timeout", .{
+                    .help = "Time limit for daemon",
+                    .long = "daemon-timeout",
+                    .takes_value = true,
+                    .default_value = "0s",
+                }),
+            },
+            .run_async = mountCommand,
+        }),
+
+        // Check files
+        flash.cmd("check", .{
+            .about = "Check integrity of files in source and destination",
+            .args = &.{
+                flash.arg("source", .{
+                    .help = "Source path or URL",
+                    .required = true,
+                }),
+                flash.arg("destination", .{
+                    .help = "Destination path or URL",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("one-way", .{
+                    .help = "Check only from source to destination",
+                    .long = "one-way",
+                }),
+                flash.flag("size-only", .{
+                    .help = "Only check sizes, not hashes",
+                    .long = "size-only",
+                }),
+                flash.flag("download", .{
+                    .help = "Download and check instead of just comparing hashes",
+                    .long = "download",
+                }),
+                flash.flag("missing-on-src", .{
+                    .help = "Report files missing on source",
+                    .long = "missing-on-src",
+                }),
+                flash.flag("missing-on-dst", .{
+                    .help = "Report files missing on destination",
+                    .long = "missing-on-dst",
+                }),
+                flash.flag("match", .{
+                    .help = "Report matching files",
+                    .long = "match",
+                }),
+                flash.flag("differ", .{
+                    .help = "Report differing files",
+                    .long = "differ",
+                }),
+                flash.flag("error", .{
+                    .help = "Report errors",
+                    .long = "error",
+                }),
+            },
+            .run_async = checkCommand,
+        }),
+
+        // Clean up
+        flash.cmd("cleanup", .{
+            .about = "Clean up remote",
+            .args = &.{
+                flash.arg("remote", .{
+                    .help = "Remote to clean up",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("remove-empty-dirs", .{
+                    .help = "Remove empty directories",
+                    .long = "remove-empty-dirs",
+                }),
+                flash.flag("dry-run", .{
+                    .help = "Show what would be deleted",
+                    .long = "dry-run",
+                }),
+            },
+            .run_async = cleanupCommand,
+        }),
+
+        // Dedupe
+        flash.cmd("dedupe", .{
+            .about = "Remove duplicate files",
+            .args = &.{
+                flash.arg("remote", .{
+                    .help = "Remote to deduplicate",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("mode", .{
+                    .help = "Dedupe mode (interactive, skip, first, newest, oldest, largest, smallest)",
+                    .long = "dedupe-mode",
+                    .takes_value = true,
+                    .default_value = "interactive",
+                    .validator = flash.validation.choiceValidator(&.{
+                        "interactive", "skip", "first", "newest", "oldest", "largest", "smallest"
+                    }, true),
+                }),
+                flash.flag("by-hash", .{
+                    .help = "Dedupe by hash instead of name",
+                    .long = "by-hash",
+                }),
+            },
+            .run_async = dedupeCommand,
+        }),
+
+        // Size calculation
+        flash.cmd("size", .{
+            .about = "Print the total size of objects in remote",
+            .args = &.{
+                flash.arg("remote", .{
+                    .help = "Remote to calculate size for",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("json", .{
+                    .help = "Output in JSON format",
+                    .long = "json",
+                }),
+            },
+            .run_async = sizeCommand,
+        }),
+
+        // Version info
+        flash.cmd("version", .{
+            .about = "Show version information",
+            .flags = &.{
+                flash.flag("check", .{
+                    .help = "Check for updates",
+                    .long = "check",
+                }),
+            },
+            .run_async = versionCommand,
+        }),
+    },
+
+    .flags = &.{
+        flash.flag("config", .{
+            .help = "Config file path",
+            .long = "config",
+            .takes_value = true,
+        }),
+        flash.flag("verbose", .{
+            .help = "Enable verbose output",
+            .short = 'v',
+            .long = "verbose",
+        }),
+        flash.flag("quiet", .{
+            .help = "Print as little as possible",
+            .short = 'q',
+            .long = "quiet",
+        }),
+        flash.flag("checksum", .{
+            .help = "Skip based on checksum, not mod-time & size",
+            .short = 'c',
+            .long = "checksum",
+        }),
+        flash.flag("one-file-system", .{
+            .help = "Don't cross filesystem boundaries",
+            .short = 'x',
+            .long = "one-file-system",
+        }),
+        flash.flag("dry-run", .{
+            .help = "Do a trial run with no permanent changes",
+            .short = 'n',
+            .long = "dry-run",
+        }),
+        flash.flag("interactive", .{
+            .help = "Ask before transferring",
+            .short = 'i',
+            .long = "interactive",
+        }),
+    },
+});
+
+// Command implementations
+async fn syncCommand(ctx: flash.Context) !void {
+    const source = ctx.get("source").?;
+    const destination = ctx.get("destination").?;
+    const dry_run = ctx.getBool("dry-run");
+    const delete_files = ctx.getBool("delete");
+    const transfers_str = ctx.get("transfers") orelse "{{max_concurrent_transfers}}";
+    const transfers = std.fmt.parseInt(u8, transfers_str, 10) catch {{max_concurrent_transfers}};
+
+    std.debug.print("🔄 Synchronizing {s} → {s}\n", .{ source, destination });
+
+    if (dry_run) {
+        std.debug.print("🔍 DRY RUN mode - no changes will be made\n");
+    }
+
+    std.debug.print("Config: {} transfers, delete={}\n", .{ transfers, delete_files });
+
+    // Example progress output
+    std.debug.print("\n📊 Transfer statistics:\n");
+    std.debug.print("Transferred:       1.234 GiB / 2.345 GiB, 52%, 45.6 MiB/s, ETA 30s\n");
+    std.debug.print("Checks:            1234 / 2345, 52%\n");
+    std.debug.print("Transferred:       567 / 1234, 45%\n");
+    std.debug.print("Elapsed time:      1m30s\n");
+    std.debug.print("Transferring:\n");
+    std.debug.print(" * large_file.zip: 72% done, 12.3 MiB/s, ETA 15s\n");
+    std.debug.print(" * data.db: 45% done, 8.9 MiB/s, ETA 25s\n");
+
+    if (!dry_run) {
+        std.debug.print("\n✅ Sync completed successfully!\n");
+    }
+}
+
+async fn copyCommand(ctx: flash.Context) !void {
+    const source = ctx.get("source").?;
+    const destination = ctx.get("destination").?;
+    const progress = ctx.getBool("progress");
+
+    std.debug.print("📁 Copying {s} → {s}\n", .{ source, destination });
+
+    if (progress) {
+        std.debug.print("Progress: [████████████████████] 100% | 1.2 GB/s | ETA: 0s\n");
+    }
+
+    std.debug.print("✅ Copy completed: 1,234 files (2.3 GB) in 45.6s\n");
+}
+
+async fn moveCommand(ctx: flash.Context) !void {
+    const source = ctx.get("source").?;
+    const destination = ctx.get("destination").?;
+
+    std.debug.print("🚚 Moving {s} → {s}\n", .{ source, destination });
+    std.debug.print("✅ Move completed: 567 files moved\n");
+}
+
+{{#if with_cloud_storage}}
+async fn lsCommand(ctx: flash.Context) !void {
+    const remote = ctx.get("remote").?;
+    const long_format = ctx.getBool("long");
+    const human_readable = ctx.getBool("human-readable");
+
+    std.debug.print("📂 Listing {s}:\n\n", .{remote});
+
+    if (long_format) {
+        if (human_readable) {
+            std.debug.print("drwxr-xr-x   5 user  staff   160B Jan 15 14:30 documents/\n");
+            std.debug.print("-rw-r--r--   1 user  staff   1.2M Jan 15 14:25 photo.jpg\n");
+            std.debug.print("-rw-r--r--   1 user  staff   456K Jan 15 14:20 report.pdf\n");
+        } else {
+            std.debug.print("drwxr-xr-x   5 user  staff   160 Jan 15 14:30 documents/\n");
+            std.debug.print("-rw-r--r--   1 user  staff   1234567 Jan 15 14:25 photo.jpg\n");
+            std.debug.print("-rw-r--r--   1 user  staff   456789 Jan 15 14:20 report.pdf\n");
+        }
+    } else {
+        std.debug.print("documents/\n");
+        std.debug.print("photo.jpg\n");
+        std.debug.print("report.pdf\n");
+    }
+}
+
+async fn remoteConfigCommand(ctx: flash.Context) !void {
+    const name = ctx.get("name").?;
+    const remote_type = ctx.get("type").?;
+    const interactive = ctx.getBool("interactive");
+
+    std.debug.print("⚙️  Configuring remote '{s}' (type: {s})\n", .{ name, remote_type });
+
+    if (interactive) {
+        std.debug.print("Interactive configuration mode...\n");
+        // Would show prompts for configuration
+    }
+
+    std.debug.print("✅ Remote '{s}' configured successfully!\n", .{name});
+}
+
+async fn remoteListCommand(ctx: flash.Context) !void {
+    const long_format = ctx.getBool("long");
+
+    std.debug.print("📡 Configured remotes:\n\n");
+
+    if (long_format) {
+        std.debug.print("Name           Type        Description\n");
+        std.debug.print("────────────── ─────────── ─────────────────────────\n");
+        std.debug.print("myaws          s3          Amazon S3 (us-east-1)\n");
+        std.debug.print("myazure        azureblob   Azure Blob Storage\n");
+        std.debug.print("backup         local       Local backup drive\n");
+    } else {
+        std.debug.print("myaws\n");
+        std.debug.print("myazure\n");
+        std.debug.print("backup\n");
+    }
+}
+
+async fn remoteDeleteCommand(ctx: flash.Context) !void {
+    const name = ctx.get("name").?;
+    std.debug.print("🗑️  Deleting remote '{s}'\n", .{name});
+    std.debug.print("✅ Remote '{s}' deleted successfully!\n", .{name});
+}
+
+async fn remoteTestCommand(ctx: flash.Context) !void {
+    const name = ctx.get("name").?;
+    std.debug.print("🔍 Testing remote '{s}'\n", .{name});
+    std.debug.print("✅ Remote '{s}' is working correctly!\n", .{name});
+}
+{{/if}}
+
+async fn mountCommand(ctx: flash.Context) !void {
+    const remote = ctx.get("remote").?;
+    const mountpoint = ctx.get("mountpoint").?;
+    const read_only = ctx.getBool("read-only");
+    const daemon = ctx.getBool("daemon");
+
+    std.debug.print("🗂️  Mounting {s} at {s}\n", .{ remote, mountpoint });
+
+    if (read_only) {
+        std.debug.print("Mode: Read-only\n");
+    }
+
+    if (daemon) {
+        std.debug.print("Running in background...\n");
+        std.debug.print("✅ Mount started successfully!\n");
+    } else {
+        std.debug.print("Mount ready. Press Ctrl+C to unmount.\n");
+        // Would block here in real implementation
+    }
+}
+
+async fn checkCommand(ctx: flash.Context) !void {
+    const source = ctx.get("source").?;
+    const destination = ctx.get("destination").?;
+    const one_way = ctx.getBool("one-way");
+
+    std.debug.print("🔍 Checking {s} vs {s}\n", .{ source, destination });
+
+    if (one_way) {
+        std.debug.print("Mode: One-way check (source → destination)\n");
+    }
+
+    std.debug.print("\n📊 Check results:\n");
+    std.debug.print("✅ Matched: 1,234 files\n");
+    std.debug.print("❌ Differing: 12 files\n");
+    std.debug.print("⚠️  Missing on destination: 5 files\n");
+    std.debug.print("⚠️  Missing on source: 2 files\n");
+}
+
+async fn cleanupCommand(ctx: flash.Context) !void {
+    const remote = ctx.get("remote").?;
+    const dry_run = ctx.getBool("dry-run");
+
+    std.debug.print("🧹 Cleaning up {s}\n", .{remote});
+
+    if (dry_run) {
+        std.debug.print("DRY RUN: Would remove 15 empty directories\n");
+    } else {
+        std.debug.print("✅ Removed 15 empty directories\n");
+    }
+}
+
+async fn dedupeCommand(ctx: flash.Context) !void {
+    const remote = ctx.get("remote").?;
+    const mode = ctx.get("dedupe-mode") orelse "interactive";
+
+    std.debug.print("🔄 Deduplicating {s} (mode: {s})\n", .{ remote, mode });
+    std.debug.print("Found 45 duplicate files\n");
+
+    if (std.mem.eql(u8, mode, "interactive")) {
+        std.debug.print("Interactive mode - would prompt for each duplicate\n");
+    }
+
+    std.debug.print("✅ Removed 23 duplicate files, saved 456 MB\n");
+}
+
+async fn sizeCommand(ctx: flash.Context) !void {
+    const remote = ctx.get("remote").?;
+    const json_output = ctx.getBool("json");
+
+    if (json_output) {
+        std.debug.print("{{\"bytes\": 1234567890, \"objects\": 5678}}\n", .{});
+    } else {
+        std.debug.print("📊 Size of {s}:\n", .{remote});
+        std.debug.print("Total objects: 5,678\n");
+        std.debug.print("Total size: 1.15 GB (1,234,567,890 bytes)\n");
+    }
+}
+
+async fn versionCommand(ctx: flash.Context) !void {
+    const check_updates = ctx.getBool("check");
+
+    std.debug.print("{{project_name}} {{project_version}}\n");
+    std.debug.print("Built with Flash CLI Framework\n");
+    std.debug.print("Zig version: 0.16.0\n");
+
+    if (check_updates) {
+        std.debug.print("\n🔍 Checking for updates...\n");
+        std.debug.print("✅ You are running the latest version!\n");
+    }
+}
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    try {{pascal_case project_name}}CLI.run(gpa.allocator());
+}

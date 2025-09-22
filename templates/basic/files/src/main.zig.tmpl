@@ -1,0 +1,278 @@
+const std = @import("std");
+const flash = @import("flash");
+
+// Define the CLI application
+const {{pascal_case project_name}}CLI = flash.CLI(.{
+    .name = "{{project_name}}",
+    .version = "{{project_version}}",
+    .about = "{{project_description}}",
+    .author = "{{author_name}}",
+
+    .commands = &.{
+        // Usage: {{project_name}} greet "World"
+        flash.cmd("greet", .{
+            .about = "Greet someone with a friendly message",
+            .args = &.{
+                flash.arg("name", .{
+                    .help = "Name of the person to greet",
+                    .required = true,
+                    {{#if with_validation}}
+                    .validator = flash.validation.nonEmptyValidator(),
+                    {{/if}}
+                }),
+            },
+            .flags = &.{
+                flash.flag("uppercase", .{
+                    .help = "Make the greeting uppercase",
+                    .short = 'u',
+                    .long = "uppercase",
+                }),
+                flash.flag("repeat", .{
+                    .help = "Number of times to repeat the greeting",
+                    .short = 'r',
+                    .long = "repeat",
+                    .takes_value = true,
+                    .default_value = "1",
+                    {{#if with_validation}}
+                    .validator = flash.validation.intInRange(1, 10),
+                    {{/if}}
+                }),
+            },
+            .run = greetCommand,
+        }),
+
+        // Usage: {{project_name}} info
+        flash.cmd("info", .{
+            .about = "Show information about {{project_name}}",
+            .run = infoCommand,
+        }),
+
+        {{#if with_completions}}
+        flash.cmd("completions", .{
+            .about = "Generate shell completion scripts",
+            .flags = &.{
+                flash.flag("shell", .{
+                    .help = "Shell type (bash, zsh, powershell)",
+                    .short = 's',
+                    .long = "shell",
+                    .takes_value = true,
+                    .required = true,
+                    .validator = flash.validation.choiceValidator(&.{ "bash", "zsh", "powershell" }, true),
+                }),
+                flash.flag("output", .{
+                    .help = "Output file (default: stdout)",
+                    .short = 'o',
+                    .long = "output",
+                    .takes_value = true,
+                }),
+                flash.flag("generate-all", .{
+                    .help = "Generate completions for all supported shells",
+                    .long = "generate-all",
+                }),
+                flash.flag("output-dir", .{
+                    .help = "Output directory for --generate-all",
+                    .long = "output-dir",
+                    .takes_value = true,
+                    .default_value = "completions",
+                }),
+            },
+            .run = completionsCommand,
+        }),
+        {{/if}}
+
+        flash.cmd("docs", .{
+            .about = "Generate documentation",
+            .flags = &.{
+                flash.flag("format", .{
+                    .help = "Documentation format",
+                    .long = "format",
+                    .takes_value = true,
+                    .default_value = "markdown",
+                    .validator = flash.validation.choiceValidator(&.{ "markdown", "html", "man" }, true),
+                }),
+                flash.flag("output", .{
+                    .help = "Output file or directory",
+                    .short = 'o',
+                    .long = "output",
+                    .takes_value = true,
+                    .default_value = "docs/",
+                }),
+            },
+            .run = docsCommand,
+        }),
+    },
+
+    .flags = &.{
+        flash.flag("verbose", .{
+            .help = "Enable verbose output",
+            .short = 'v',
+            .long = "verbose",
+        }),
+        flash.flag("config", .{
+            .help = "Configuration file path",
+            .short = 'c',
+            .long = "config",
+            .takes_value = true,
+        }),
+    },
+});
+
+// Command handlers
+fn greetCommand(ctx: flash.Context) !void {
+    const name = ctx.get("name").?;
+    const uppercase = ctx.getBool("verbose");
+    const repeat_str = ctx.get("repeat") orelse "1";
+    const repeat_count = std.fmt.parseInt(u8, repeat_str, 10) catch 1;
+
+    var greeting = if (uppercase) "HELLO" else "Hello";
+
+    var i: u8 = 0;
+    while (i < repeat_count) : (i += 1) {
+        std.debug.print("{s}, {s}!\n", .{ greeting, name });
+    }
+}
+
+fn infoCommand(ctx: flash.Context) !void {
+    _ = ctx;
+    std.debug.print("{{project_name}} v{{project_version}}\n");
+    std.debug.print("{{project_description}}\n");
+    std.debug.print("Built with Flash CLI Framework\n");
+    std.debug.print("Author: {{author_name}}\n");
+    std.debug.print("License: {{license}}\n");
+}
+
+{{#if with_completions}}
+fn completionsCommand(ctx: flash.Context) !void {
+    const allocator = ctx.allocator;
+
+    if (ctx.getBool("generate-all")) {
+        const output_dir = ctx.get("output-dir") orelse "completions";
+
+        // Create output directory
+        std.fs.cwd().makeDir(output_dir) catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => return err,
+        };
+
+        // Generate for all shells
+        const shells = [_]flash.completion.Shell{ .bash, .zsh, .powershell };
+        for (shells) |shell| {
+            var generator = flash.completion.CompletionGenerator.init(allocator);
+            defer generator.deinit();
+
+            const script = try generator.generate({{pascal_case project_name}}CLI, shell, "{{project_name}}");
+            defer allocator.free(script);
+
+            const shell_name = @tagName(shell);
+            const filename = try std.fmt.allocPrint(allocator, "{s}/{{project_name}}.{s}", .{ output_dir, shell_name });
+            defer allocator.free(filename);
+
+            const file = try std.fs.cwd().createFile(filename, .{});
+            defer file.close();
+
+            try file.writeAll(script);
+            std.debug.print("Generated {s} completion: {s}\n", .{ shell_name, filename });
+        }
+    } else {
+        const shell_str = ctx.get("shell").?;
+        const shell = std.meta.stringToEnum(flash.completion.Shell, shell_str) orelse {
+            std.debug.print("Error: Unknown shell '{s}'\n", .{shell_str});
+            return;
+        };
+
+        var generator = flash.completion.CompletionGenerator.init(allocator);
+        defer generator.deinit();
+
+        const script = try generator.generate({{pascal_case project_name}}CLI, shell, "{{project_name}}");
+        defer allocator.free(script);
+
+        if (ctx.get("output")) |output_file| {
+            const file = try std.fs.cwd().createFile(output_file, .{});
+            defer file.close();
+            try file.writeAll(script);
+            std.debug.print("Completion script written to {s}\n", .{output_file});
+        } else {
+            std.debug.print("{s}", .{script});
+        }
+    }
+}
+{{/if}}
+
+fn docsCommand(ctx: flash.Context) !void {
+    const allocator = ctx.allocator;
+    const format_str = ctx.get("format") orelse "markdown";
+    const output = ctx.get("output") orelse "docs/";
+
+    const format = std.meta.stringToEnum(flash.documentation.Format, format_str) orelse {
+        std.debug.print("Error: Unknown documentation format '{s}'\n", .{format_str});
+        return;
+    };
+
+    var doc_gen = flash.documentation.DocGenerator.init(allocator, .{
+        .include_examples = true,
+        .include_source_links = false,
+        .theme = .default,
+    });
+    defer doc_gen.deinit();
+
+    const docs = try doc_gen.generate({{pascal_case project_name}}CLI, format, "{{project_name}}");
+    defer allocator.free(docs);
+
+    // Create output directory if it doesn't exist
+    if (std.mem.endsWith(u8, output, "/")) {
+        std.fs.cwd().makeDir(output) catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => return err,
+        };
+
+        const filename = try std.fmt.allocPrint(allocator, "{s}{{project_name}}.{s}", .{ output, format_str });
+        defer allocator.free(filename);
+
+        const file = try std.fs.cwd().createFile(filename, .{});
+        defer file.close();
+        try file.writeAll(docs);
+        std.debug.print("Documentation written to {s}\n", .{filename});
+    } else {
+        const file = try std.fs.cwd().createFile(output, .{});
+        defer file.close();
+        try file.writeAll(docs);
+        std.debug.print("Documentation written to {s}\n", .{output});
+    }
+}
+
+// Main entry point
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    try {{pascal_case project_name}}CLI.run(gpa.allocator());
+}
+
+// Tests
+test "basic CLI functionality" {
+    const testing = std.testing;
+
+    var harness = flash.testing.TestHarness.init(testing.allocator);
+    defer harness.deinit();
+
+    // Test greet command
+    const result = try harness.execute({{pascal_case project_name}}CLI, &.{ "greet", "World" });
+    defer result.deinit();
+
+    try result.expectExitCode(0);
+    try result.expectStdoutContains("Hello, World!");
+}
+
+test "info command" {
+    const testing = std.testing;
+
+    var harness = flash.testing.TestHarness.init(testing.allocator);
+    defer harness.deinit();
+
+    const result = try harness.execute({{pascal_case project_name}}CLI, &.{"info"});
+    defer result.deinit();
+
+    try result.expectExitCode(0);
+    try result.expectStdoutContains("{{project_name}} v{{project_version}}");
+    try result.expectStdoutContains("{{project_description}}");
+}

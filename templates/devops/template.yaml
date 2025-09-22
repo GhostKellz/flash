@@ -1,0 +1,89 @@
+name: "devops"
+description: "DevOps/Operations Tool Template"
+version: "1.0.0"
+author: "Flash CLI Framework"
+
+# Template configuration
+config:
+  min_flash_version: "1.0.0"
+  zig_version: "0.16.0"
+
+# Required variables
+variables:
+  - name: project_name
+    type: string
+    required: true
+    description: "Name of the DevOps tool"
+    validation: "^[a-z][a-z0-9-_]*$"
+
+  - name: project_description
+    type: string
+    required: false
+    default: "A DevOps tool built with Flash"
+    description: "Brief description of the tool"
+
+  - name: project_version
+    type: string
+    required: false
+    default: "0.1.0"
+    description: "Initial version number"
+
+  - name: author_name
+    type: string
+    required: false
+    default: "Your Name"
+    description: "Author name for the project"
+
+  - name: cloud_provider
+    type: string
+    required: false
+    default: "aws"
+    description: "Primary cloud provider"
+    choices: ["aws", "gcp", "azure", "multi", "none"]
+
+  - name: environments
+    type: string
+    required: false
+    default: "dev,staging,prod"
+    description: "Deployment environments (comma-separated)"
+
+  - name: with_kubernetes
+    type: boolean
+    required: false
+    default: true
+    description: "Include Kubernetes deployment support"
+
+  - name: with_docker
+    type: boolean
+    required: false
+    default: true
+    description: "Include Docker operations"
+
+  - name: with_monitoring
+    type: boolean
+    required: false
+    default: true
+    description: "Include monitoring and metrics collection"
+
+  - name: with_secrets
+    type: boolean
+    required: false
+    default: true
+    description: "Include secrets management"
+
+# Dependencies
+dependencies:
+  - name: "flash"
+    path: "../.."
+    version: "^1.0.0"
+
+# Template features
+features:
+  - multi_environment_support
+  - configuration_management
+  - async_operations
+  - progress_reporting
+  - error_recovery
+  - metrics_collection
+  - deployment_workflows
+  - infrastructure_automation

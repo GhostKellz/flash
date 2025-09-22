@@ -1,0 +1,90 @@
+name: "async-files"
+description: "High-Performance File Processing Tool Template"
+version: "1.0.0"
+author: "Flash CLI Framework"
+
+# Template configuration
+config:
+  min_flash_version: "1.0.0"
+  zig_version: "0.16.0"
+
+# Required variables
+variables:
+  - name: project_name
+    type: string
+    required: true
+    description: "Name of the file processing tool"
+    validation: "^[a-z][a-z0-9-_]*$"
+
+  - name: project_description
+    type: string
+    required: false
+    default: "A high-performance file processing tool built with Flash"
+    description: "Brief description of the tool"
+
+  - name: project_version
+    type: string
+    required: false
+    default: "0.1.0"
+    description: "Initial version number"
+
+  - name: author_name
+    type: string
+    required: false
+    default: "Your Name"
+    description: "Author name for the project"
+
+  - name: max_concurrent_files
+    type: integer
+    required: false
+    default: 100
+    description: "Maximum number of files to process concurrently"
+    min: 1
+    max: 1000
+
+  - name: buffer_size
+    type: string
+    required: false
+    default: "64KB"
+    description: "Buffer size for file operations"
+    choices: ["4KB", "8KB", "16KB", "32KB", "64KB", "128KB", "256KB", "512KB", "1MB"]
+
+  - name: with_compression
+    type: boolean
+    required: false
+    default: true
+    description: "Include compression/decompression support"
+
+  - name: with_encryption
+    type: boolean
+    required: false
+    default: false
+    description: "Include encryption/decryption support"
+
+  - name: with_hashing
+    type: boolean
+    required: false
+    default: true
+    description: "Include file hashing and checksums"
+
+  - name: with_text_processing
+    type: boolean
+    required: false
+    default: true
+    description: "Include text processing utilities"
+
+# Dependencies
+dependencies:
+  - name: "flash"
+    path: "../.."
+    version: "^1.0.0"
+
+# Template features
+features:
+  - parallel_file_processing
+  - progress_bars
+  - memory_efficient_streaming
+  - error_handling
+  - batch_operations
+  - async_io
+  - performance_monitoring

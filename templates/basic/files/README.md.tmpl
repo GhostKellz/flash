@@ -1,0 +1,166 @@
+# {{project_name}}
+
+{{project_description}}
+
+Built with [Flash CLI Framework](https://github.com/ghostkellz/flash) ⚡
+
+## Installation
+
+```bash
+# Clone the repository
+git clone <your-repo-url> {{project_name}}
+cd {{project_name}}
+
+# Build the project
+zig build
+
+# Run the CLI
+zig build run -- --help
+```
+
+## Usage
+
+### Basic Commands
+
+```bash
+# Greet someone
+{{project_name}} greet "World"
+# Output: Hello, World!
+
+# Greet with options
+{{project_name}} greet "Alice" --uppercase --repeat 3
+# Output: HELLO, Alice!
+# Output: HELLO, Alice!
+# Output: HELLO, Alice!
+
+# Show {{project_name}} information
+{{project_name}} info
+# Output: {{project_name}} v{{project_version}}
+```
+
+### Documentation
+
+```bash
+# Generate documentation
+{{project_name}} docs --format markdown --output docs/
+
+# Generate HTML documentation
+{{project_name}} docs --format html --output {{project_name}}.html
+```
+
+{{#if with_completions}}
+### Shell Completions
+
+```bash
+# Generate bash completion
+{{project_name}} completions --shell bash --output {{project_name}}.bash
+
+# Generate completions for all shells
+{{project_name}} completions --generate-all --output-dir completions/
+
+# Install bash completion (example)
+sudo cp completions/{{project_name}}.bash /etc/bash_completion.d/
+```
+{{/if}}
+
+## Development
+
+### Building
+
+```bash
+# Build in debug mode
+zig build
+
+# Build optimized release
+zig build -Doptimize=ReleaseFast
+```
+
+### Testing
+
+```bash
+# Run all tests
+zig build test
+
+# Run with verbose output
+{{project_name}} --verbose <command>
+```
+
+{{#if with_completions}}
+### Shell Completion Setup
+
+#### Bash
+```bash
+# Add to ~/.bashrc
+source <({{project_name}} completions --shell bash)
+```
+
+#### Zsh
+```bash
+# Add to ~/.zshrc
+autoload -U compinit && compinit
+source <({{project_name}} completions --shell zsh)
+```
+
+#### PowerShell
+```powershell
+# Add to PowerShell profile
+{{project_name}} completions --shell powershell | Out-String | Invoke-Expression
+```
+{{/if}}
+
+## Configuration
+
+Create a configuration file at `~/.config/{{project_name}}/config.toml`:
+
+```toml
+# Example configuration
+[general]
+verbose = false
+output_format = "pretty"
+
+[greet]
+default_greeting = "Hello"
+```
+
+Use with:
+```bash
+{{project_name}} --config ~/.config/{{project_name}}/config.toml greet "World"
+```
+
+## Features
+
+- ✅ **Command-line argument parsing** with rich validation
+- ✅ **Subcommand support** with hierarchical help
+- ✅ **Shell completions** for bash, zsh, and PowerShell
+- ✅ **Documentation generation** in multiple formats
+- ✅ **Comprehensive testing** with snapshot support
+- ✅ **Performance optimized** with zero-cost abstractions
+- ✅ **Memory safe** with Zig's compile-time guarantees
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Run `zig build test` to ensure tests pass
+6. Submit a pull request
+
+## License
+
+This project is licensed under the {{license}} License. See the LICENSE file for details.
+
+## Built With Flash
+
+This CLI was scaffolded using the Flash CLI Framework, providing:
+
+- **High Performance**: Zero-cost abstractions and compile-time optimizations
+- **Memory Safety**: Zig's compile-time memory safety guarantees
+- **Rich Features**: Built-in validation, completions, testing, and documentation
+- **Developer Experience**: Excellent error messages and debugging support
+
+Learn more about Flash: https://github.com/ghostkellz/flash
+
+---
+
+*Created with ❤️ using Flash CLI Framework*

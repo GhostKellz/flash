@@ -1,0 +1,763 @@
+const std = @import("std");
+const flash = @import("flash");
+
+// {{project_name}} - Lightning-fast find and grep tool
+const {{pascal_case project_name}}CLI = flash.CLI(.{
+    .name = "{{project_name}}",
+    .version = "{{project_version}}",
+    .about = "{{project_description}}",
+    .author = "{{author_name}}",
+
+    .commands = &.{
+        // Find files: {{project_name}} find
+        flash.cmd("find", .{
+            .about = "Find files and directories with advanced filtering",
+            .args = &.{
+                flash.arg("pattern", .{
+                    .help = "Search pattern (name, path, or glob)",
+                    .required = false,
+                }),
+            },
+            .flags = &.{
+                flash.flag("path", .{
+                    .help = "Search path (default: current directory)",
+                    .short = 'p',
+                    .long = "path",
+                    .takes_value = true,
+                    .default_value = ".",
+                }),
+                flash.flag("type", .{
+                    .help = "File type (f=file, d=dir, l=link, x=executable)",
+                    .short = 't',
+                    .long = "type",
+                    .takes_value = true,
+                    .validator = flash.validation.choiceValidator(&.{ "f", "d", "l", "x", "file", "dir", "link", "exe" }, true),
+                }),
+                flash.flag("extension", .{
+                    .help = "File extension filter (e.g., 'rs,go,zig')",
+                    .short = 'e',
+                    .long = "ext",
+                    .takes_value = true,
+                }),
+                flash.flag("size", .{
+                    .help = "Size filter (e.g., '+10M', '-1G', '100K-500K')",
+                    .short = 's',
+                    .long = "size",
+                    .takes_value = true,
+                }),
+                flash.flag("modified", .{
+                    .help = "Modified time (e.g., '-7d', '+30m', '2024-01-01')",
+                    .short = 'm',
+                    .long = "modified",
+                    .takes_value = true,
+                }),
+                flash.flag("depth", .{
+                    .help = "Max directory depth",
+                    .short = 'd',
+                    .long = "depth",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(1, 100),
+                }),
+                flash.flag("hidden", .{
+                    .help = "Include hidden files",
+                    .short = 'H',
+                    .long = "hidden",
+                }),
+                flash.flag("follow", .{
+                    .help = "Follow symbolic links",
+                    .short = 'L',
+                    .long = "follow",
+                }),
+                flash.flag("case-insensitive", .{
+                    .help = "Case-insensitive matching",
+                    .short = 'i',
+                    .long = "ignore-case",
+                }),
+                {{#if with_fuzzy_search}}
+                flash.flag("fuzzy", .{
+                    .help = "Enable fuzzy matching",
+                    .short = 'z',
+                    .long = "fuzzy",
+                }),
+                flash.flag("fuzzy-threshold", .{
+                    .help = "Fuzzy match threshold (0.0-1.0)",
+                    .long = "fuzzy-threshold",
+                    .takes_value = true,
+                    .default_value = "0.7",
+                }),
+                {{/if}}
+                {{#if with_git_integration}}
+                flash.flag("git-ignore", .{
+                    .help = "Respect .gitignore files",
+                    .short = 'g',
+                    .long = "git-ignore",
+                }),
+                flash.flag("no-ignore", .{
+                    .help = "Don't respect ignore files",
+                    .long = "no-ignore",
+                }),
+                {{/if}}
+                flash.flag("exec", .{
+                    .help = "Execute command for each result",
+                    .short = 'x',
+                    .long = "exec",
+                    .takes_value = true,
+                }),
+                flash.flag("parallel", .{
+                    .help = "Number of parallel workers",
+                    .short = 'j',
+                    .long = "parallel",
+                    .takes_value = true,
+                    .default_value = "{{max_parallel_workers}}",
+                    .validator = flash.validation.intInRange(1, 128),
+                }),
+                flash.flag("format", .{
+                    .help = "Output format (simple, detailed, json, tree)",
+                    .short = 'f',
+                    .long = "format",
+                    .takes_value = true,
+                    .default_value = "simple",
+                    .validator = flash.validation.choiceValidator(&.{ "simple", "detailed", "json", "tree" }, true),
+                }),
+                flash.flag("color", .{
+                    .help = "Colorize output (always, never, auto)",
+                    .long = "color",
+                    .takes_value = true,
+                    .default_value = "auto",
+                    .validator = flash.validation.choiceValidator(&.{ "always", "never", "auto" }, true),
+                }),
+            },
+            .run_async = findCommand,
+        }),
+
+        // Grep content: {{project_name}} grep
+        flash.cmd("grep", .{
+            .about = "Search file contents with powerful pattern matching",
+            .args = &.{
+                flash.arg("pattern", .{
+                    .help = "Search pattern (string or regex)",
+                    .required = true,
+                }),
+                flash.arg("paths", .{
+                    .help = "Paths to search (default: current directory)",
+                    .required = false,
+                    .multiple = true,
+                }),
+            },
+            .flags = &.{
+                {{#if with_regex_engine}}
+                flash.flag("regex", .{
+                    .help = "Use regex pattern (default is literal)",
+                    .short = 'E',
+                    .long = "regex",
+                }),
+                flash.flag("pcre", .{
+                    .help = "Use PCRE2 regex engine",
+                    .short = 'P',
+                    .long = "pcre",
+                }),
+                {{/if}}
+                flash.flag("fixed-strings", .{
+                    .help = "Treat pattern as literal string",
+                    .short = 'F',
+                    .long = "fixed-strings",
+                }),
+                flash.flag("word-regexp", .{
+                    .help = "Match whole words only",
+                    .short = 'w',
+                    .long = "word-regexp",
+                }),
+                flash.flag("line-regexp", .{
+                    .help = "Match whole lines only",
+                    .short = 'x',
+                    .long = "line-regexp",
+                }),
+                flash.flag("case-insensitive", .{
+                    .help = "Case-insensitive search",
+                    .short = 'i',
+                    .long = "ignore-case",
+                }),
+                flash.flag("smart-case", .{
+                    .help = "Smart case (case-sensitive if pattern has uppercase)",
+                    .short = 'S',
+                    .long = "smart-case",
+                }),
+                flash.flag("invert-match", .{
+                    .help = "Select non-matching lines",
+                    .short = 'v',
+                    .long = "invert-match",
+                }),
+                flash.flag("count", .{
+                    .help = "Show match count only",
+                    .short = 'c',
+                    .long = "count",
+                }),
+                flash.flag("files-with-matches", .{
+                    .help = "Show only filenames with matches",
+                    .short = 'l',
+                    .long = "files-with-matches",
+                }),
+                flash.flag("files-without-match", .{
+                    .help = "Show only filenames without matches",
+                    .short = 'L',
+                    .long = "files-without-match",
+                }),
+                flash.flag("line-number", .{
+                    .help = "Show line numbers",
+                    .short = 'n',
+                    .long = "line-number",
+                }),
+                flash.flag("column", .{
+                    .help = "Show column numbers",
+                    .long = "column",
+                }),
+                flash.flag("before-context", .{
+                    .help = "Lines of context before match",
+                    .short = 'B',
+                    .long = "before",
+                    .takes_value = true,
+                    .default_value = "0",
+                    .validator = flash.validation.intInRange(0, 100),
+                }),
+                flash.flag("after-context", .{
+                    .help = "Lines of context after match",
+                    .short = 'A',
+                    .long = "after",
+                    .takes_value = true,
+                    .default_value = "0",
+                    .validator = flash.validation.intInRange(0, 100),
+                }),
+                flash.flag("context", .{
+                    .help = "Lines of context before and after",
+                    .short = 'C',
+                    .long = "context",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(0, 100),
+                }),
+                flash.flag("max-count", .{
+                    .help = "Stop after N matches per file",
+                    .short = 'm',
+                    .long = "max-count",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(1, 100000),
+                }),
+                {{#if with_binary_detection}}
+                flash.flag("binary", .{
+                    .help = "Process binary files as text",
+                    .short = 'a',
+                    .long = "binary",
+                }),
+                flash.flag("text", .{
+                    .help = "Process only text files",
+                    .short = 'I',
+                    .long = "text",
+                }),
+                {{/if}}
+                flash.flag("include", .{
+                    .help = "Include files matching pattern",
+                    .long = "include",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("exclude", .{
+                    .help = "Exclude files matching pattern",
+                    .long = "exclude",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("exclude-dir", .{
+                    .help = "Exclude directories matching pattern",
+                    .long = "exclude-dir",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                {{#if with_git_integration}}
+                flash.flag("git-grep", .{
+                    .help = "Use git grep if in git repository",
+                    .long = "git-grep",
+                }),
+                {{/if}}
+                flash.flag("threads", .{
+                    .help = "Number of search threads",
+                    .short = 'j',
+                    .long = "threads",
+                    .takes_value = true,
+                    .default_value = "{{max_parallel_workers}}",
+                    .validator = flash.validation.intInRange(1, 128),
+                }),
+                flash.flag("stats", .{
+                    .help = "Show search statistics",
+                    .long = "stats",
+                }),
+                flash.flag("json", .{
+                    .help = "Output as JSON",
+                    .long = "json",
+                }),
+                flash.flag("null", .{
+                    .help = "Separate filenames with null character",
+                    .short = 'Z',
+                    .long = "null",
+                }),
+                flash.flag("heading", .{
+                    .help = "Group matches by file",
+                    .long = "heading",
+                }),
+                flash.flag("no-heading", .{
+                    .help = "Don't group matches by file",
+                    .long = "no-heading",
+                }),
+                flash.flag("color", .{
+                    .help = "Colorize output (always, never, auto)",
+                    .long = "color",
+                    .takes_value = true,
+                    .default_value = "auto",
+                    .validator = flash.validation.choiceValidator(&.{ "always", "never", "auto" }, true),
+                }),
+            },
+            .run_async = grepCommand,
+        }),
+
+        // Replace in files: {{project_name}} replace
+        flash.cmd("replace", .{
+            .about = "Find and replace text in files",
+            .args = &.{
+                flash.arg("pattern", .{
+                    .help = "Search pattern",
+                    .required = true,
+                }),
+                flash.arg("replacement", .{
+                    .help = "Replacement text",
+                    .required = true,
+                }),
+                flash.arg("paths", .{
+                    .help = "Paths to process",
+                    .required = false,
+                    .multiple = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("preview", .{
+                    .help = "Preview changes without modifying files",
+                    .short = 'n',
+                    .long = "dry-run",
+                }),
+                flash.flag("interactive", .{
+                    .help = "Confirm each replacement",
+                    .short = 'i',
+                    .long = "interactive",
+                }),
+                flash.flag("backup", .{
+                    .help = "Create backup with suffix",
+                    .short = 'b',
+                    .long = "backup",
+                    .takes_value = true,
+                    .default_value = ".bak",
+                }),
+                flash.flag("in-place", .{
+                    .help = "Modify files in place",
+                    .long = "in-place",
+                }),
+                // Inherit many flags from grep
+                flash.flag("case-insensitive", .{
+                    .help = "Case-insensitive matching",
+                    .short = 'i',
+                    .long = "ignore-case",
+                }),
+                flash.flag("word-regexp", .{
+                    .help = "Match whole words only",
+                    .short = 'w',
+                    .long = "word-regexp",
+                }),
+                flash.flag("include", .{
+                    .help = "Include files matching pattern",
+                    .long = "include",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("exclude", .{
+                    .help = "Exclude files matching pattern",
+                    .long = "exclude",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+            },
+            .run_async = replaceCommand,
+        }),
+
+        {{#if with_fuzzy_search}}
+        // Interactive fuzzy finder: {{project_name}} fzf
+        flash.cmd("fzf", .{
+            .about = "Interactive fuzzy file finder",
+            .args = &.{
+                flash.arg("initial-query", .{
+                    .help = "Initial search query",
+                    .required = false,
+                }),
+            },
+            .flags = &.{
+                flash.flag("preview", .{
+                    .help = "Enable file preview",
+                    .short = 'p',
+                    .long = "preview",
+                }),
+                flash.flag("multi", .{
+                    .help = "Enable multi-selection",
+                    .short = 'm',
+                    .long = "multi",
+                }),
+                flash.flag("height", .{
+                    .help = "Display height (lines or percentage)",
+                    .long = "height",
+                    .takes_value = true,
+                    .default_value = "40%",
+                }),
+                flash.flag("layout", .{
+                    .help = "Layout (default, reverse, reverse-list)",
+                    .long = "layout",
+                    .takes_value = true,
+                    .default_value = "default",
+                    .validator = flash.validation.choiceValidator(&.{ "default", "reverse", "reverse-list" }, true),
+                }),
+                flash.flag("prompt", .{
+                    .help = "Input prompt",
+                    .long = "prompt",
+                    .takes_value = true,
+                    .default_value = "> ",
+                }),
+                flash.flag("header", .{
+                    .help = "Header text",
+                    .long = "header",
+                    .takes_value = true,
+                }),
+                flash.flag("bind", .{
+                    .help = "Custom key bindings",
+                    .long = "bind",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("preview-command", .{
+                    .help = "Preview command",
+                    .long = "preview-cmd",
+                    .takes_value = true,
+                }),
+            },
+            .run_async = fzfCommand,
+        }),
+        {{/if}}
+
+        // Locate files using index: {{project_name}} locate
+        flash.cmd("locate", .{
+            .about = "Fast file location using pre-built index",
+            .args = &.{
+                flash.arg("pattern", .{
+                    .help = "Search pattern",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("update-db", .{
+                    .help = "Update file index before searching",
+                    .short = 'u',
+                    .long = "update",
+                }),
+                flash.flag("database", .{
+                    .help = "Database file location",
+                    .short = 'd',
+                    .long = "database",
+                    .takes_value = true,
+                    .default_value = "~/.{{project_name}}.db",
+                }),
+                flash.flag("limit", .{
+                    .help = "Limit number of results",
+                    .short = 'l',
+                    .long = "limit",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(1, 10000),
+                }),
+                flash.flag("existing", .{
+                    .help = "Only show existing files",
+                    .short = 'e',
+                    .long = "existing",
+                }),
+                flash.flag("basename", .{
+                    .help = "Match only basename",
+                    .short = 'b',
+                    .long = "basename",
+                }),
+                flash.flag("count", .{
+                    .help = "Show count only",
+                    .short = 'c',
+                    .long = "count",
+                }),
+                flash.flag("ignore-case", .{
+                    .help = "Case-insensitive search",
+                    .short = 'i',
+                    .long = "ignore-case",
+                }),
+                flash.flag("regex", .{
+                    .help = "Use regex pattern",
+                    .short = 'r',
+                    .long = "regex",
+                }),
+            },
+            .run_async = locateCommand,
+        }),
+
+        // Update file index: {{project_name}} updatedb
+        flash.cmd("updatedb", .{
+            .about = "Update file index for fast location",
+            .flags = &.{
+                flash.flag("path", .{
+                    .help = "Root path to index",
+                    .short = 'p',
+                    .long = "path",
+                    .takes_value = true,
+                    .default_value = "/",
+                }),
+                flash.flag("database", .{
+                    .help = "Database file location",
+                    .short = 'd',
+                    .long = "database",
+                    .takes_value = true,
+                    .default_value = "~/.{{project_name}}.db",
+                }),
+                flash.flag("prune-paths", .{
+                    .help = "Paths to exclude from index",
+                    .long = "prune",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("verbose", .{
+                    .help = "Show indexing progress",
+                    .short = 'v',
+                    .long = "verbose",
+                }),
+            },
+            .run_async = updatedbCommand,
+        }),
+
+        // Stats and analysis: {{project_name}} stats
+        flash.cmd("stats", .{
+            .about = "Show statistics about files and directories",
+            .args = &.{
+                flash.arg("path", .{
+                    .help = "Path to analyze",
+                    .required = false,
+                    .default_value = ".",
+                }),
+            },
+            .flags = &.{
+                flash.flag("by-extension", .{
+                    .help = "Group by file extension",
+                    .long = "by-ext",
+                }),
+                flash.flag("by-size", .{
+                    .help = "Group by file size",
+                    .long = "by-size",
+                }),
+                flash.flag("by-date", .{
+                    .help = "Group by modification date",
+                    .long = "by-date",
+                }),
+                flash.flag("duplicates", .{
+                    .help = "Find duplicate files",
+                    .long = "duplicates",
+                }),
+                flash.flag("largest", .{
+                    .help = "Show N largest files",
+                    .long = "largest",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(1, 1000),
+                }),
+                flash.flag("format", .{
+                    .help = "Output format (table, json, csv)",
+                    .short = 'f',
+                    .long = "format",
+                    .takes_value = true,
+                    .default_value = "table",
+                    .validator = flash.validation.choiceValidator(&.{ "table", "json", "csv" }, true),
+                }),
+            },
+            .run_async = statsCommand,
+        }),
+    },
+
+    .flags = &.{
+        flash.flag("verbose", .{
+            .help = "Enable verbose output",
+            .short = 'v',
+            .long = "verbose",
+        }),
+        flash.flag("quiet", .{
+            .help = "Suppress non-essential output",
+            .short = 'q',
+            .long = "quiet",
+        }),
+        flash.flag("debug", .{
+            .help = "Enable debug output",
+            .long = "debug",
+        }),
+        flash.flag("time", .{
+            .help = "Show execution time",
+            .long = "time",
+        }),
+    },
+});
+
+// Command implementations
+async fn findCommand(ctx: flash.Context) !void {
+    const pattern = ctx.get("pattern");
+    const path = ctx.get("path") orelse ".";
+    const format = ctx.get("format") orelse "simple";
+
+    std.debug.print("🔍 Searching in {s}...\n", .{path});
+
+    if (pattern) |p| {
+        std.debug.print("Pattern: {s}\n", .{p});
+    }
+
+    // Example output
+    if (std.mem.eql(u8, format, "tree")) {
+        std.debug.print(".\n");
+        std.debug.print("├── src/\n");
+        std.debug.print("│   ├── main.zig\n");
+        std.debug.print("│   └── utils.zig\n");
+        std.debug.print("├── build.zig\n");
+        std.debug.print("└── README.md\n");
+    } else {
+        std.debug.print("./src/main.zig\n");
+        std.debug.print("./src/utils.zig\n");
+        std.debug.print("./build.zig\n");
+        std.debug.print("./README.md\n");
+    }
+
+    if (ctx.getBool("verbose")) {
+        std.debug.print("\n📊 Found 4 files in 0.002s\n");
+    }
+}
+
+async fn grepCommand(ctx: flash.Context) !void {
+    const pattern = ctx.get("pattern").?;
+    const paths = ctx.getMany("paths") orelse &[_][]const u8{"."};
+    const show_line_numbers = ctx.getBool("line-number");
+
+    std.debug.print("🔍 Searching for '{s}' in {d} location(s)...\n\n", .{pattern, paths.len});
+
+    // Example output
+    if (show_line_numbers) {
+        std.debug.print("src/main.zig:42:    const result = findPattern(text, pattern);\n");
+        std.debug.print("src/utils.zig:15:    // Pattern matching utilities\n");
+        std.debug.print("test/search_test.zig:8:    try testing.expect(pattern.match(\"test\"));\n");
+    } else {
+        std.debug.print("src/main.zig:    const result = findPattern(text, pattern);\n");
+        std.debug.print("src/utils.zig:    // Pattern matching utilities\n");
+        std.debug.print("test/search_test.zig:    try testing.expect(pattern.match(\"test\"));\n");
+    }
+
+    if (ctx.getBool("count")) {
+        std.debug.print("\n📊 Total matches: 3\n");
+    }
+}
+
+async fn replaceCommand(ctx: flash.Context) !void {
+    const pattern = ctx.get("pattern").?;
+    const replacement = ctx.get("replacement").?;
+    const preview = ctx.getBool("preview");
+
+    if (preview) {
+        std.debug.print("🔍 Preview mode - no files will be modified\n\n");
+    }
+
+    std.debug.print("Replacing '{s}' with '{s}'\n\n", .{pattern, replacement});
+
+    // Example output
+    std.debug.print("src/main.zig:\n");
+    std.debug.print("  Line 42:\n");
+    std.debug.print("  - const result = findPattern(text, pattern);\n");
+    std.debug.print("  + const result = findPattern(text, {s});\n", .{replacement});
+
+    if (!preview) {
+        std.debug.print("\n✅ Replaced 3 occurrences in 2 files\n");
+    }
+}
+
+{{#if with_fuzzy_search}}
+async fn fzfCommand(ctx: flash.Context) !void {
+    const initial_query = ctx.get("initial-query");
+    const preview = ctx.getBool("preview");
+
+    std.debug.print("🔍 Interactive fuzzy finder\n");
+
+    if (initial_query) |query| {
+        std.debug.print("Initial query: {s}\n", .{query});
+    }
+
+    if (preview) {
+        std.debug.print("Preview enabled\n");
+    }
+
+    // This would launch an interactive TUI
+    std.debug.print("(Interactive mode would start here)\n");
+}
+{{/if}}
+
+async fn locateCommand(ctx: flash.Context) !void {
+    const pattern = ctx.get("pattern").?;
+    const update = ctx.getBool("update-db");
+
+    if (update) {
+        std.debug.print("📊 Updating file index...\n");
+    }
+
+    std.debug.print("🔍 Locating '{s}'...\n", .{pattern});
+
+    // Example output
+    std.debug.print("/home/user/projects/myapp/src/main.zig\n");
+    std.debug.print("/usr/local/bin/{{project_name}}\n");
+    std.debug.print("/opt/tools/{{project_name}}/README.md\n");
+
+    std.debug.print("\n📊 Found 3 files in 0.001s\n");
+}
+
+async fn updatedbCommand(ctx: flash.Context) !void {
+    const path = ctx.get("path") orelse "/";
+    const verbose = ctx.getBool("verbose");
+
+    std.debug.print("📊 Building file index for {s}...\n", .{path});
+
+    if (verbose) {
+        std.debug.print("Scanning directories...\n");
+        std.debug.print("Processing: /home... (12,345 files)\n");
+        std.debug.print("Processing: /usr... (45,678 files)\n");
+    }
+
+    std.debug.print("\n✅ Indexed 58,023 files in 2.3s\n");
+}
+
+async fn statsCommand(ctx: flash.Context) !void {
+    const path = ctx.get("path") orelse ".";
+    const by_ext = ctx.getBool("by-extension");
+
+    std.debug.print("📊 Analyzing {s}...\n\n", .{path});
+
+    if (by_ext) {
+        std.debug.print("Files by extension:\n");
+        std.debug.print("  .zig   : 45 files (1.2 MB)\n");
+        std.debug.print("  .md    : 12 files (234 KB)\n");
+        std.debug.print("  .txt   : 8 files (45 KB)\n");
+        std.debug.print("  .json  : 3 files (12 KB)\n");
+    } else {
+        std.debug.print("Directory statistics:\n");
+        std.debug.print("  Total files: 68\n");
+        std.debug.print("  Total size: 1.5 MB\n");
+        std.debug.print("  Directories: 12\n");
+        std.debug.print("  Largest file: src/data.zig (234 KB)\n");
+        std.debug.print("  Oldest file: README.md (2024-01-01)\n");
+    }
+}
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    try {{pascal_case project_name}}CLI.run(gpa.allocator());
+}

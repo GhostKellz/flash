@@ -1,0 +1,71 @@
+name: "zipper"
+description: "High-Performance File Sync and Transfer Tool (rclone/rsync alternative)"
+version: "1.0.0"
+author: "Flash CLI Framework"
+
+# Template configuration
+config:
+  min_flash_version: "1.0.0"
+  zig_version: "0.16.0"
+
+# Required variables
+variables:
+  - name: project_name
+    type: string
+    required: true
+    description: "Name of the sync tool"
+    validation: "^[a-z][a-z0-9-_]*$"
+    default: "zipper"
+
+  - name: project_description
+    type: string
+    required: false
+    default: "Lightning-fast file sync and transfer with cloud storage support"
+    description: "Brief description of the tool"
+
+  - name: with_cloud_storage
+    type: boolean
+    required: false
+    default: true
+    description: "Include cloud storage backends (S3, Azure, GCP, etc.)"
+
+  - name: with_encryption
+    type: boolean
+    required: false
+    default: true
+    description: "Include encryption for transfers"
+
+  - name: with_compression
+    type: boolean
+    required: false
+    default: true
+    description: "Include compression support"
+
+  - name: with_resume
+    type: boolean
+    required: false
+    default: true
+    description: "Include transfer resume capability"
+
+  - name: max_concurrent_transfers
+    type: integer
+    required: false
+    default: 32
+    description: "Maximum concurrent transfer threads"
+
+# Dependencies
+dependencies:
+  - name: "flash"
+    path: "../.."
+    version: "^1.0.0"
+
+# Template features
+features:
+  - bidirectional_sync
+  - incremental_transfers
+  - parallel_operations
+  - bandwidth_limiting
+  - progress_tracking
+  - checksum_verification
+  - cloud_storage_backends
+  - encryption_support

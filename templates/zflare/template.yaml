@@ -1,0 +1,77 @@
+name: "zflare"
+description: "Enhanced Azure CLI with Advanced Features and Automation"
+version: "1.0.0"
+author: "Flash CLI Framework"
+
+# Template configuration
+config:
+  min_flash_version: "1.0.0"
+  zig_version: "0.16.0"
+
+# Required variables
+variables:
+  - name: project_name
+    type: string
+    required: true
+    description: "Name of the Azure CLI tool"
+    validation: "^[a-z][a-z0-9-_]*$"
+    default: "zflare"
+
+  - name: project_description
+    type: string
+    required: false
+    default: "Enhanced Azure CLI with advanced automation, monitoring, and multi-cloud capabilities"
+    description: "Brief description of the tool"
+
+  - name: with_monitoring
+    type: boolean
+    required: false
+    default: true
+    description: "Include Azure monitoring and alerting features"
+
+  - name: with_devops
+    type: boolean
+    required: false
+    default: true
+    description: "Include Azure DevOps integration"
+
+  - name: with_kubernetes
+    type: boolean
+    required: false
+    default: true
+    description: "Include Azure Kubernetes Service (AKS) management"
+
+  - name: with_cost_management
+    type: boolean
+    required: false
+    default: true
+    description: "Include cost optimization and billing features"
+
+  - name: with_security
+    type: boolean
+    required: false
+    default: true
+    description: "Include security and compliance features"
+
+  - name: with_automation
+    type: boolean
+    required: false
+    default: true
+    description: "Include automation and infrastructure-as-code features"
+
+# Dependencies
+dependencies:
+  - name: "flash"
+    path: "../.."
+    version: "^1.0.0"
+
+# Template features
+features:
+  - azure_resource_management
+  - multi_subscription_support
+  - advanced_querying
+  - bulk_operations
+  - cost_optimization
+  - security_scanning
+  - automation_workflows
+  - monitoring_integration

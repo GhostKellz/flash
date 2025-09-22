@@ -1,0 +1,838 @@
+const std = @import("std");
+const flash = @import("flash");
+
+// {{project_name}} - Fast, secure backup tool with cloud storage
+const {{pascal_case project_name}}CLI = flash.CLI(.{
+    .name = "{{project_name}}",
+    .version = "{{project_version}}",
+    .about = "{{project_description}}",
+    .author = "{{author_name}}",
+
+    .commands = &.{
+        // Initialize repository: {{project_name}} init
+        flash.cmd("init", .{
+            .about = "Initialize a new backup repository",
+            .args = &.{
+                flash.arg("repository", .{
+                    .help = "Repository location (local path or cloud URL)",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                {{#if with_aws}}
+                flash.flag("aws-profile", .{
+                    .help = "AWS profile to use",
+                    .long = "aws-profile",
+                    .takes_value = true,
+                }),
+                flash.flag("s3-bucket", .{
+                    .help = "S3 bucket name",
+                    .long = "s3-bucket",
+                    .takes_value = true,
+                }),
+                flash.flag("s3-region", .{
+                    .help = "AWS region",
+                    .long = "s3-region",
+                    .takes_value = true,
+                    .default_value = "us-east-1",
+                }),
+                flash.flag("s3-endpoint", .{
+                    .help = "S3-compatible endpoint (for MinIO, Wasabi, etc.)",
+                    .long = "s3-endpoint",
+                    .takes_value = true,
+                }),
+                flash.flag("s3-access-key", .{
+                    .help = "S3 access key (for non-AWS providers)",
+                    .long = "s3-access-key",
+                    .takes_value = true,
+                }),
+                flash.flag("s3-secret-key", .{
+                    .help = "S3 secret key (for non-AWS providers)",
+                    .long = "s3-secret-key",
+                    .takes_value = true,
+                }),
+                flash.flag("s3-force-path-style", .{
+                    .help = "Force path-style S3 URLs (needed for MinIO)",
+                    .long = "s3-force-path-style",
+                }),
+                {{/if}}
+                {{#if with_azure}}
+                flash.flag("azure-account", .{
+                    .help = "Azure storage account name",
+                    .long = "azure-account",
+                    .takes_value = true,
+                }),
+                flash.flag("azure-container", .{
+                    .help = "Azure blob container",
+                    .long = "azure-container",
+                    .takes_value = true,
+                }),
+                {{/if}}
+                {{#if with_encryption}}
+                flash.flag("password", .{
+                    .help = "Repository password",
+                    .short = 'p',
+                    .long = "password",
+                    .takes_value = true,
+                }),
+                flash.flag("password-file", .{
+                    .help = "Read password from file",
+                    .long = "password-file",
+                    .takes_value = true,
+                }),
+                {{/if}}
+                flash.flag("chunk-size", .{
+                    .help = "Chunk size for deduplication (default: 1MB)",
+                    .long = "chunk-size",
+                    .takes_value = true,
+                    .default_value = "1MB",
+                }),
+            },
+            .run_async = initCommand,
+        }),
+
+        // Backup: {{project_name}} backup
+        flash.cmd("backup", .{
+            .about = "Create a new backup snapshot",
+            .args = &.{
+                flash.arg("paths", .{
+                    .help = "Paths to backup",
+                    .required = true,
+                    .multiple = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("repository", .{
+                    .help = "Repository location",
+                    .short = 'r',
+                    .long = "repo",
+                    .takes_value = true,
+                    .required = true,
+                }),
+                flash.flag("exclude", .{
+                    .help = "Exclude patterns (can be used multiple times)",
+                    .short = 'e',
+                    .long = "exclude",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("exclude-file", .{
+                    .help = "File containing exclude patterns",
+                    .long = "exclude-file",
+                    .takes_value = true,
+                }),
+                flash.flag("tag", .{
+                    .help = "Tags for this snapshot",
+                    .short = 't',
+                    .long = "tag",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("host", .{
+                    .help = "Override hostname",
+                    .long = "host",
+                    .takes_value = true,
+                }),
+                {{#if with_compression}}
+                flash.flag("compression", .{
+                    .help = "Compression algorithm (none, zstd, lz4, gzip)",
+                    .long = "compression",
+                    .takes_value = true,
+                    .default_value = "zstd",
+                    .validator = flash.validation.choiceValidator(&.{ "none", "zstd", "lz4", "gzip" }, true),
+                }),
+                flash.flag("compression-level", .{
+                    .help = "Compression level (1-9)",
+                    .long = "compression-level",
+                    .takes_value = true,
+                    .default_value = "3",
+                    .validator = flash.validation.intInRange(1, 9),
+                }),
+                {{/if}}
+                flash.flag("dry-run", .{
+                    .help = "Show what would be backed up without doing it",
+                    .short = 'n',
+                    .long = "dry-run",
+                }),
+                flash.flag("force", .{
+                    .help = "Force backup even if parent snapshot cannot be loaded",
+                    .short = 'f',
+                    .long = "force",
+                }),
+                flash.flag("one-file-system", .{
+                    .help = "Do not cross filesystem boundaries",
+                    .short = 'x',
+                    .long = "one-file-system",
+                }),
+                flash.flag("verbose", .{
+                    .help = "Show detailed progress",
+                    .short = 'v',
+                    .long = "verbose",
+                }),
+                flash.flag("json", .{
+                    .help = "Output progress as JSON",
+                    .long = "json",
+                }),
+            },
+            .run_async = backupCommand,
+        }),
+
+        // Restore: {{project_name}} restore
+        flash.cmd("restore", .{
+            .about = "Restore files from a snapshot",
+            .args = &.{
+                flash.arg("snapshot", .{
+                    .help = "Snapshot ID or 'latest'",
+                    .required = true,
+                }),
+                flash.arg("target", .{
+                    .help = "Target directory for restore",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("repository", .{
+                    .help = "Repository location",
+                    .short = 'r',
+                    .long = "repo",
+                    .takes_value = true,
+                    .required = true,
+                }),
+                flash.flag("include", .{
+                    .help = "Include only matching paths",
+                    .short = 'i',
+                    .long = "include",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("exclude", .{
+                    .help = "Exclude matching paths",
+                    .short = 'e',
+                    .long = "exclude",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("host", .{
+                    .help = "Only restore snapshots from this host",
+                    .short = 'H',
+                    .long = "host",
+                    .takes_value = true,
+                }),
+                flash.flag("tag", .{
+                    .help = "Only restore snapshots with this tag",
+                    .short = 't',
+                    .long = "tag",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("verify", .{
+                    .help = "Verify restored files",
+                    .long = "verify",
+                }),
+                flash.flag("overwrite", .{
+                    .help = "Overwrite existing files",
+                    .long = "overwrite",
+                }),
+            },
+            .run_async = restoreCommand,
+        }),
+
+        // List snapshots: {{project_name}} snapshots
+        flash.cmd("snapshots", .{
+            .about = "List snapshots in repository",
+            .flags = &.{
+                flash.flag("repository", .{
+                    .help = "Repository location",
+                    .short = 'r',
+                    .long = "repo",
+                    .takes_value = true,
+                    .required = true,
+                }),
+                flash.flag("host", .{
+                    .help = "Filter by host",
+                    .short = 'H',
+                    .long = "host",
+                    .takes_value = true,
+                }),
+                flash.flag("tag", .{
+                    .help = "Filter by tag",
+                    .short = 't',
+                    .long = "tag",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("path", .{
+                    .help = "Filter by path",
+                    .long = "path",
+                    .takes_value = true,
+                }),
+                flash.flag("compact", .{
+                    .help = "Compact output",
+                    .short = 'c',
+                    .long = "compact",
+                }),
+                flash.flag("json", .{
+                    .help = "JSON output",
+                    .long = "json",
+                }),
+                flash.flag("group-by", .{
+                    .help = "Group by (host, tag, path)",
+                    .short = 'g',
+                    .long = "group-by",
+                    .takes_value = true,
+                    .validator = flash.validation.choiceValidator(&.{ "host", "tag", "path" }, true),
+                }),
+            },
+            .run_async = snapshotsCommand,
+        }),
+
+        // Mount repository: {{project_name}} mount
+        flash.cmd("mount", .{
+            .about = "Mount repository as filesystem (FUSE)",
+            .args = &.{
+                flash.arg("mountpoint", .{
+                    .help = "Mount point directory",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("repository", .{
+                    .help = "Repository location",
+                    .short = 'r',
+                    .long = "repo",
+                    .takes_value = true,
+                    .required = true,
+                }),
+                flash.flag("snapshot", .{
+                    .help = "Mount specific snapshot",
+                    .long = "snapshot",
+                    .takes_value = true,
+                }),
+                flash.flag("allow-other", .{
+                    .help = "Allow other users to access mount",
+                    .long = "allow-other",
+                }),
+                flash.flag("no-cache", .{
+                    .help = "Disable caching",
+                    .long = "no-cache",
+                }),
+            },
+            .run_async = mountCommand,
+        }),
+
+        // Prune old snapshots: {{project_name}} forget
+        flash.cmd("forget", .{
+            .about = "Remove snapshots according to policy",
+            .flags = &.{
+                flash.flag("repository", .{
+                    .help = "Repository location",
+                    .short = 'r',
+                    .long = "repo",
+                    .takes_value = true,
+                    .required = true,
+                }),
+                flash.flag("keep-last", .{
+                    .help = "Keep last n snapshots",
+                    .short = 'l',
+                    .long = "keep-last",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(1, 10000),
+                }),
+                flash.flag("keep-hourly", .{
+                    .help = "Keep n hourly snapshots",
+                    .short = 'H',
+                    .long = "keep-hourly",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(1, 10000),
+                }),
+                flash.flag("keep-daily", .{
+                    .help = "Keep n daily snapshots",
+                    .short = 'd',
+                    .long = "keep-daily",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(1, 10000),
+                }),
+                flash.flag("keep-weekly", .{
+                    .help = "Keep n weekly snapshots",
+                    .short = 'w',
+                    .long = "keep-weekly",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(1, 10000),
+                }),
+                flash.flag("keep-monthly", .{
+                    .help = "Keep n monthly snapshots",
+                    .short = 'm',
+                    .long = "keep-monthly",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(1, 10000),
+                }),
+                flash.flag("keep-yearly", .{
+                    .help = "Keep n yearly snapshots",
+                    .short = 'y',
+                    .long = "keep-yearly",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(1, 10000),
+                }),
+                flash.flag("keep-tag", .{
+                    .help = "Keep snapshots with this tag",
+                    .long = "keep-tag",
+                    .takes_value = true,
+                    .multiple = true,
+                }),
+                flash.flag("prune", .{
+                    .help = "Actually remove data (run prune after forget)",
+                    .long = "prune",
+                }),
+                flash.flag("dry-run", .{
+                    .help = "Show what would be removed",
+                    .short = 'n',
+                    .long = "dry-run",
+                }),
+            },
+            .run_async = forgetCommand,
+        }),
+
+        // Check repository: {{project_name}} check
+        flash.cmd("check", .{
+            .about = "Check repository integrity",
+            .flags = &.{
+                flash.flag("repository", .{
+                    .help = "Repository location",
+                    .short = 'r',
+                    .long = "repo",
+                    .takes_value = true,
+                    .required = true,
+                }),
+                flash.flag("read-data", .{
+                    .help = "Read and verify all data (slow)",
+                    .long = "read-data",
+                }),
+                flash.flag("read-data-subset", .{
+                    .help = "Read subset of data (percentage)",
+                    .long = "read-data-subset",
+                    .takes_value = true,
+                    .validator = flash.validation.intInRange(1, 100),
+                }),
+                flash.flag("with-cache", .{
+                    .help = "Use cache for verification",
+                    .long = "with-cache",
+                }),
+            },
+            .run_async = checkCommand,
+        }),
+
+        // Stats: {{project_name}} stats
+        flash.cmd("stats", .{
+            .about = "Show repository statistics",
+            .flags = &.{
+                flash.flag("repository", .{
+                    .help = "Repository location",
+                    .short = 'r',
+                    .long = "repo",
+                    .takes_value = true,
+                    .required = true,
+                }),
+                flash.flag("mode", .{
+                    .help = "Stats mode (raw-data, restore-size, blobs-per-file)",
+                    .long = "mode",
+                    .takes_value = true,
+                    .default_value = "restore-size",
+                    .validator = flash.validation.choiceValidator(&.{ "raw-data", "restore-size", "blobs-per-file" }, true),
+                }),
+                flash.flag("snapshot", .{
+                    .help = "Show stats for specific snapshot",
+                    .long = "snapshot",
+                    .takes_value = true,
+                }),
+                flash.flag("json", .{
+                    .help = "Output as JSON",
+                    .long = "json",
+                }),
+            },
+            .run_async = statsCommand,
+        }),
+
+        // Diff snapshots: {{project_name}} diff
+        flash.cmd("diff", .{
+            .about = "Show differences between snapshots",
+            .args = &.{
+                flash.arg("snapshot1", .{
+                    .help = "First snapshot ID",
+                    .required = true,
+                }),
+                flash.arg("snapshot2", .{
+                    .help = "Second snapshot ID",
+                    .required = true,
+                }),
+            },
+            .flags = &.{
+                flash.flag("repository", .{
+                    .help = "Repository location",
+                    .short = 'r',
+                    .long = "repo",
+                    .takes_value = true,
+                    .required = true,
+                }),
+                flash.flag("metadata", .{
+                    .help = "Include metadata changes",
+                    .long = "metadata",
+                }),
+                flash.flag("json", .{
+                    .help = "Output as JSON",
+                    .long = "json",
+                }),
+            },
+            .run_async = diffCommand,
+        }),
+
+        {{#if with_aws}}
+        // AWS/S3-compatible commands
+        flash.cmd("s3", .{
+            .about = "S3-compatible storage operations (AWS, MinIO, Wasabi, etc.)",
+            .commands = &.{
+                flash.cmd("sync", .{
+                    .about = "Sync repository to S3-compatible storage",
+                    .flags = &.{
+                        flash.flag("bucket", .{
+                            .help = "S3 bucket",
+                            .short = 'b',
+                            .long = "bucket",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("endpoint", .{
+                            .help = "S3-compatible endpoint URL",
+                            .short = 'e',
+                            .long = "endpoint",
+                            .takes_value = true,
+                        }),
+                        flash.flag("prefix", .{
+                            .help = "S3 prefix",
+                            .long = "prefix",
+                            .takes_value = true,
+                        }),
+                        flash.flag("storage-class", .{
+                            .help = "S3 storage class",
+                            .long = "storage-class",
+                            .takes_value = true,
+                            .default_value = "STANDARD",
+                            .validator = flash.validation.choiceValidator(&.{
+                                "STANDARD", "STANDARD_IA", "ONEZONE_IA",
+                                "GLACIER", "DEEP_ARCHIVE", "INTELLIGENT_TIERING"
+                            }, true),
+                        }),
+                        flash.flag("server-side-encryption", .{
+                            .help = "Enable SSE",
+                            .long = "sse",
+                        }),
+                        flash.flag("force-path-style", .{
+                            .help = "Force path-style URLs (required for MinIO)",
+                            .long = "force-path-style",
+                        }),
+                    },
+                    .run_async = s3SyncCommand,
+                }),
+                flash.cmd("test", .{
+                    .about = "Test S3-compatible connection",
+                    .flags = &.{
+                        flash.flag("endpoint", .{
+                            .help = "S3-compatible endpoint URL",
+                            .short = 'e',
+                            .long = "endpoint",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("access-key", .{
+                            .help = "Access key",
+                            .long = "access-key",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("secret-key", .{
+                            .help = "Secret key",
+                            .long = "secret-key",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("bucket", .{
+                            .help = "Test bucket",
+                            .short = 'b',
+                            .long = "bucket",
+                            .takes_value = true,
+                        }),
+                    },
+                    .run_async = s3TestCommand,
+                }),
+            },
+        }),
+
+        // MinIO-specific commands
+        flash.cmd("minio", .{
+            .about = "MinIO-specific operations",
+            .commands = &.{
+                flash.cmd("setup", .{
+                    .about = "Setup MinIO connection",
+                    .flags = &.{
+                        flash.flag("endpoint", .{
+                            .help = "MinIO endpoint URL",
+                            .short = 'e',
+                            .long = "endpoint",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("access-key", .{
+                            .help = "MinIO access key",
+                            .long = "access-key",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("secret-key", .{
+                            .help = "MinIO secret key",
+                            .long = "secret-key",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("alias", .{
+                            .help = "Connection alias",
+                            .short = 'a',
+                            .long = "alias",
+                            .takes_value = true,
+                            .default_value = "myminio",
+                        }),
+                    },
+                    .run_async = minioSetupCommand,
+                }),
+                flash.cmd("mirror", .{
+                    .about = "Mirror local backup to MinIO",
+                    .args = &.{
+                        flash.arg("source", .{
+                            .help = "Source repository",
+                            .required = true,
+                        }),
+                        flash.arg("destination", .{
+                            .help = "MinIO destination (alias/bucket/prefix)",
+                            .required = true,
+                        }),
+                    },
+                    .flags = &.{
+                        flash.flag("watch", .{
+                            .help = "Watch for changes and sync continuously",
+                            .short = 'w',
+                            .long = "watch",
+                        }),
+                        flash.flag("remove", .{
+                            .help = "Remove files from destination not in source",
+                            .long = "remove",
+                        }),
+                        flash.flag("overwrite", .{
+                            .help = "Overwrite existing files",
+                            .long = "overwrite",
+                        }),
+                    },
+                    .run_async = minioMirrorCommand,
+                }),
+            },
+        }),
+        {{/if}}
+
+        {{#if with_azure}}
+        // Azure-specific commands
+        flash.cmd("azure", .{
+            .about = "Azure Blob Storage-specific operations",
+            .commands = &.{
+                flash.cmd("sync", .{
+                    .about = "Sync repository to Azure",
+                    .flags = &.{
+                        flash.flag("account", .{
+                            .help = "Storage account",
+                            .short = 'a',
+                            .long = "account",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("container", .{
+                            .help = "Blob container",
+                            .short = 'c',
+                            .long = "container",
+                            .takes_value = true,
+                            .required = true,
+                        }),
+                        flash.flag("tier", .{
+                            .help = "Access tier",
+                            .long = "tier",
+                            .takes_value = true,
+                            .default_value = "Hot",
+                            .validator = flash.validation.choiceValidator(&.{ "Hot", "Cool", "Archive" }, true),
+                        }),
+                    },
+                    .run_async = azureSyncCommand,
+                }),
+            },
+        }),
+        {{/if}}
+    },
+
+    .flags = &.{
+        flash.flag("verbose", .{
+            .help = "Enable verbose output",
+            .short = 'v',
+            .long = "verbose",
+        }),
+        flash.flag("quiet", .{
+            .help = "Suppress non-error output",
+            .short = 'q',
+            .long = "quiet",
+        }),
+        flash.flag("no-lock", .{
+            .help = "Do not lock repository",
+            .long = "no-lock",
+        }),
+        flash.flag("json", .{
+            .help = "JSON output for automation",
+            .long = "json",
+        }),
+        flash.flag("password-command", .{
+            .help = "Command to get password",
+            .long = "password-command",
+            .takes_value = true,
+        }),
+        flash.flag("cache-dir", .{
+            .help = "Cache directory location",
+            .long = "cache-dir",
+            .takes_value = true,
+        }),
+        flash.flag("cleanup-cache", .{
+            .help = "Clean up cache after operation",
+            .long = "cleanup-cache",
+        }),
+    },
+});
+
+// Command implementations
+async fn initCommand(ctx: flash.Context) !void {
+    const repository = ctx.get("repository").?;
+
+    std.debug.print("🔐 Initializing repository: {s}\n", .{repository});
+
+    {{#if with_aws}}
+    if (ctx.get("s3-bucket")) |bucket| {
+        const region = ctx.get("s3-region") orelse "us-east-1";
+        std.debug.print("☁️  Using AWS S3: {s} in {s}\n", .{bucket, region});
+    }
+    {{/if}}
+
+    {{#if with_azure}}
+    if (ctx.get("azure-account")) |account| {
+        const container = ctx.get("azure-container").?;
+        std.debug.print("☁️  Using Azure: {s}/{s}\n", .{account, container});
+    }
+    {{/if}}
+
+    std.debug.print("✅ Repository initialized successfully!\n");
+}
+
+async fn backupCommand(ctx: flash.Context) !void {
+    const paths = ctx.getMany("paths").?;
+    const repository = ctx.get("repository").?;
+
+    std.debug.print("📦 Starting backup to {s}\n", .{repository});
+
+    for (paths) |path| {
+        std.debug.print("  Adding: {s}\n", .{path});
+    }
+
+    // Simulate backup progress
+    std.debug.print("Scanning files...\n");
+    std.debug.print("Files: 1,234 (456.7 MB)\n");
+    std.debug.print("Deduplication: 78.3% reduction\n");
+
+    std.debug.print("✅ Snapshot created: snap_2024_01_15_143022\n");
+}
+
+async fn restoreCommand(ctx: flash.Context) !void {
+    const snapshot = ctx.get("snapshot").?;
+    const target = ctx.get("target").?;
+    const repository = ctx.get("repository").?;
+
+    std.debug.print("🔄 Restoring snapshot {s} from {s}\n", .{snapshot, repository});
+    std.debug.print("Target: {s}\n", .{target});
+    std.debug.print("✅ Restore completed successfully!\n");
+}
+
+async fn snapshotsCommand(ctx: flash.Context) !void {
+    const repository = ctx.get("repository").?;
+
+    std.debug.print("📋 Snapshots in {s}:\n\n", .{repository});
+    std.debug.print("ID         Time                 Host      Tags         Size\n");
+    std.debug.print("───────────────────────────────────────────────────────────\n");
+    std.debug.print("abc123def  2024-01-15 14:30:22  myhost    daily        456.7 MB\n");
+    std.debug.print("def456ghi  2024-01-14 14:30:15  myhost    daily        455.2 MB\n");
+    std.debug.print("ghi789jkl  2024-01-13 14:30:18  myhost    daily,weekly 454.8 MB\n");
+}
+
+// Additional command implementations...
+async fn mountCommand(ctx: flash.Context) !void {
+    const mountpoint = ctx.get("mountpoint").?;
+    const repository = ctx.get("repository").?;
+    std.debug.print("🗂️  Mounting {s} at {s}\n", .{repository, mountpoint});
+}
+
+async fn forgetCommand(ctx: flash.Context) !void {
+    const repository = ctx.get("repository").?;
+    const dry_run = ctx.getBool("dry-run");
+
+    if (dry_run) {
+        std.debug.print("🔍 Dry run - would remove:\n");
+    } else {
+        std.debug.print("🗑️  Removing snapshots from {s}\n", .{repository});
+    }
+}
+
+async fn checkCommand(ctx: flash.Context) !void {
+    const repository = ctx.get("repository").?;
+    std.debug.print("🔍 Checking repository integrity: {s}\n", .{repository});
+    std.debug.print("✅ No errors found!\n");
+}
+
+async fn statsCommand(ctx: flash.Context) !void {
+    const repository = ctx.get("repository").?;
+    std.debug.print("📊 Repository statistics for {s}:\n", .{repository});
+    std.debug.print("Total Size: 2.3 GB\n");
+    std.debug.print("Deduplicated Size: 512 MB\n");
+    std.debug.print("Compression Ratio: 4.5:1\n");
+    std.debug.print("Number of Snapshots: 42\n");
+}
+
+async fn diffCommand(ctx: flash.Context) !void {
+    const snap1 = ctx.get("snapshot1").?;
+    const snap2 = ctx.get("snapshot2").?;
+    std.debug.print("🔍 Comparing {s} to {s}:\n", .{snap1, snap2});
+    std.debug.print("+ Added: 12 files (34.5 MB)\n");
+    std.debug.print("- Removed: 3 files (2.1 MB)\n");
+    std.debug.print("M Modified: 27 files (156.7 MB)\n");
+}
+
+{{#if with_aws}}
+async fn awsSyncCommand(ctx: flash.Context) !void {
+    const bucket = ctx.get("bucket").?;
+    const storage_class = ctx.get("storage-class") orelse "STANDARD";
+    std.debug.print("☁️  Syncing to S3 bucket: {s}\n", .{bucket});
+    std.debug.print("Storage class: {s}\n", .{storage_class});
+}
+{{/if}}
+
+{{#if with_azure}}
+async fn azureSyncCommand(ctx: flash.Context) !void {
+    const account = ctx.get("account").?;
+    const container = ctx.get("container").?;
+    const tier = ctx.get("tier") orelse "Hot";
+    std.debug.print("☁️  Syncing to Azure: {s}/{s}\n", .{account, container});
+    std.debug.print("Access tier: {s}\n", .{tier});
+}
+{{/if}}
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    try {{pascal_case project_name}}CLI.run(gpa.allocator());
+}

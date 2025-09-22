@@ -1,0 +1,70 @@
+name: "basic"
+description: "Simple CLI Application Template"
+version: "1.0.0"
+author: "Flash CLI Framework"
+
+# Template configuration
+config:
+  min_flash_version: "1.0.0"
+  zig_version: "0.16.0"
+
+# Required variables
+variables:
+  - name: project_name
+    type: string
+    required: true
+    description: "Name of the CLI project"
+    validation: "^[a-z][a-z0-9-_]*$"
+
+  - name: project_description
+    type: string
+    required: false
+    default: "A CLI application built with Flash"
+    description: "Brief description of the project"
+
+  - name: project_version
+    type: string
+    required: false
+    default: "0.1.0"
+    description: "Initial version number"
+
+  - name: author_name
+    type: string
+    required: false
+    default: "Your Name"
+    description: "Author name for the project"
+
+  - name: license
+    type: string
+    required: false
+    default: "MIT"
+    description: "License for the project"
+    choices: ["MIT", "Apache-2.0", "GPL-3.0", "BSD-3-Clause", "Unlicense"]
+
+  - name: with_validation
+    type: boolean
+    required: false
+    default: true
+    description: "Include validation examples"
+
+  - name: with_completions
+    type: boolean
+    required: false
+    default: true
+    description: "Include shell completion setup"
+
+# Dependencies
+dependencies:
+  - name: "flash"
+    path: "../.."  # Local development path
+    version: "^1.0.0"
+
+# Template features
+features:
+  - basic_commands
+  - argument_parsing
+  - flag_handling
+  - help_generation
+  - shell_completions
+  - testing
+  - documentation

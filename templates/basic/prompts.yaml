@@ -1,0 +1,53 @@
+prompts:
+  - name: project_name
+    message: "Project name (lowercase, no spaces)"
+    type: input
+    validate: "^[a-z][a-z0-9-_]*$"
+    error_message: "Project name must start with lowercase letter and contain only lowercase letters, numbers, hyphens, and underscores"
+
+  - name: project_description
+    message: "Project description"
+    type: input
+    default: "A CLI application built with Flash"
+
+  - name: project_version
+    message: "Initial version"
+    type: input
+    default: "0.1.0"
+    validate: "^\\d+\\.\\d+\\.\\d+.*$"
+
+  - name: author_name
+    message: "Author name"
+    type: input
+    default: "Your Name"
+
+  - name: license
+    message: "Choose license"
+    type: select
+    choices:
+      - name: "MIT"
+        value: "MIT"
+        description: "MIT License - Simple and permissive"
+      - name: "Apache-2.0"
+        value: "Apache-2.0"
+        description: "Apache License 2.0 - Patent grant included"
+      - name: "GPL-3.0"
+        value: "GPL-3.0"
+        description: "GNU General Public License v3.0 - Copyleft"
+      - name: "BSD-3-Clause"
+        value: "BSD-3-Clause"
+        description: "3-Clause BSD License - Simple and permissive"
+      - name: "Unlicense"
+        value: "Unlicense"
+        description: "The Unlicense - Public domain"
+    default: "MIT"
+
+  - name: with_validation
+    message: "Include validation examples?"
+    type: confirm
+    default: true
+
+  - name: with_completions
+    message: "Include shell completion support?"
+    type: confirm
+    default: true
