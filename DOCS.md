@@ -1,4 +1,4 @@
-# ⚡ Flash v0.1.0 Documentation
+# ⚡ Flash v0.3.1 Documentation
 
 **The Lightning-Fast CLI Framework for Zig**
 
@@ -654,5 +654,5 @@ Flash follows these design principles:
 
 ---
 
-⚡ **Flash v0.1.0** - The Lightning-Fast CLI Framework for Zig  
-Built with ❤️ and ⚡ for the Zig community
+⚡ **Flash v0.3.1** - The Lightning-Fast CLI Framework for Zig
+⚡ Built with Zig

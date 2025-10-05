@@ -15,7 +15,7 @@ This guide shows how to integrate Flash CLI framework into your Zeke AI applicat
     .version = "1.0.0",
     .dependencies = .{
         .flash = .{
-            .url = "https://github.com/your-org/flash/archive/main.tar.gz",
+            .url = "https://github.com/ghostkellz/flash/archive/main.tar.gz",
             .hash = "...",
         },
     },

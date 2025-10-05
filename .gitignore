@@ -1,8 +1,12 @@
-/zig-cache/
-/zig-out/
+.zig-cache/
+zig-out/
 *.o
 *.exe
-.zig-cache
 archive/
 /archive
 CLAUDE.md
+TODO.md
+ALPHA_INTEGRATIONS.md
+GHOST_INTEGRATIONS.md
+REVIEW25.md
+DOCUMENTATION_COMPLETE.md

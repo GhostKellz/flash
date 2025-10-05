@@ -13,16 +13,18 @@ const Context = @import("context.zig");
 pub const Shell = enum {
     bash,
     zsh,
-    // fish, // Removed for now
+    fish,
     powershell,
     nushell,
+    gsh, // gshell - modern Zig shell
 
     pub fn fromString(s: []const u8) ?Shell {
         if (std.mem.eql(u8, s, "bash")) return .bash;
         if (std.mem.eql(u8, s, "zsh")) return .zsh;
-        // fish support removed for now
+        if (std.mem.eql(u8, s, "fish")) return .fish;
         if (std.mem.eql(u8, s, "powershell") or std.mem.eql(u8, s, "pwsh")) return .powershell;
         if (std.mem.eql(u8, s, "nushell") or std.mem.eql(u8, s, "nu")) return .nushell;
+        if (std.mem.eql(u8, s, "gshell") or std.mem.eql(u8, s, "gsh")) return .gsh;
         return null;
     }
 
@@ -30,9 +32,10 @@ pub const Shell = enum {
         return switch (self) {
             .bash => ".bash",
             .zsh => ".zsh",
-            // fish support removed for now
+            .fish => ".fish",
             .powershell => ".ps1",
             .nushell => ".nu",
+            .gsh => ".gsh",
         };
     }
 };
@@ -103,9 +106,10 @@ pub const CompletionGenerator = struct {
         return switch (shell) {
             .bash => self.generateBash(command, program_name),
             .zsh => self.generateZsh(command, program_name),
-            // Fish support can be added later if needed
+            .fish => self.generateFish(command, program_name),
             .powershell => self.generatePowerShell(command, program_name),
             .nushell => self.generateNuShell(command, program_name),
+            .gsh => self.generateGShell(command, program_name),
         };
     }
 
@@ -365,6 +369,120 @@ pub const CompletionGenerator = struct {
         try writer.print("    --help(-h)     # Show help information\n", .{});
         try writer.print("    --version(-V)  # Show version information\n", .{});
         try writer.print("]\n", .{});
+
+        return buf.toOwnedSlice();
+    }
+
+    fn generateFish(self: CompletionGenerator, command: Command.Command, program_name: []const u8) ![]u8 {
+        var buf = std.ArrayList(u8).init(self.allocator);
+        const writer = buf.writer();
+
+        try writer.print("# ⚡ Flash completion script for Fish\n", .{});
+        try writer.print("# Generated for {s}\n\n", .{program_name});
+
+        // Add subcommands
+        for (command.getSubcommands()) |subcmd| {
+            if (!subcmd.isHidden()) {
+                const about = subcmd.getAbout() orelse "";
+                try writer.print("complete -c {s} -f -n \"__fish_use_subcommand\" -a {s} -d '{s}'\n", .{ program_name, subcmd.name, about });
+
+                // Add flags for this subcommand
+                for (subcmd.getFlags()) |flag| {
+                    const help_text = flag.help orelse "";
+                    const condition = try std.fmt.allocPrint(self.allocator, "__fish_seen_subcommand_from {s}", .{subcmd.name});
+                    defer self.allocator.free(condition);
+
+                    if (flag.short) |short| {
+                        try writer.print("complete -c {s} -f -n \"{s}\" -s {c} -d '{s}'\n", .{ program_name, condition, short, help_text });
+                    }
+                    if (flag.long) |long| {
+                        try writer.print("complete -c {s} -f -n \"{s}\" -l {s} -d '{s}'\n", .{ program_name, condition, long, help_text });
+                    }
+                }
+            }
+        }
+
+        // Add builtin commands
+        try writer.print("complete -c {s} -f -n \"__fish_use_subcommand\" -a help -d 'Show help information'\n", .{program_name});
+        try writer.print("complete -c {s} -f -n \"__fish_use_subcommand\" -a version -d 'Show version information'\n", .{program_name});
+        try writer.print("complete -c {s} -f -n \"__fish_use_subcommand\" -a completion -d 'Generate shell completion scripts'\n", .{program_name});
+
+        // Global flags
+        try writer.print("complete -c {s} -f -s h -l help -d 'Show help information'\n", .{program_name});
+        try writer.print("complete -c {s} -f -s V -l version -d 'Show version information'\n", .{program_name});
+
+        // Add command-specific flags
+        for (command.getFlags()) |flag| {
+            const help_text = flag.help orelse "";
+            if (flag.short) |short| {
+                try writer.print("complete -c {s} -f -s {c} -d '{s}'\n", .{ program_name, short, help_text });
+            }
+            if (flag.long) |long| {
+                try writer.print("complete -c {s} -f -l {s} -d '{s}'\n", .{ program_name, long, help_text });
+            }
+        }
+
+        return buf.toOwnedSlice();
+    }
+
+    fn generateGShell(self: CompletionGenerator, command: Command.Command, program_name: []const u8) ![]u8 {
+        var buf = std.ArrayList(u8).init(self.allocator);
+        const writer = buf.writer();
+
+        try writer.print("# ⚡ Flash completion script for GShell (gsh)\n", .{});
+        try writer.print("# Generated for {s}\n", .{program_name});
+        try writer.print("# Zig-native shell completion powered by flare config\n\n", .{});
+
+        // GShell uses a declarative Zig-like syntax for completions
+        try writer.print("completion {s} {{\n", .{program_name});
+        try writer.print("    description = \"Flash CLI application\"\n\n", .{});
+
+        // Add subcommands
+        if (command.getSubcommands().len > 0) {
+            try writer.print("    subcommands = .{{\n", .{});
+            for (command.getSubcommands()) |subcmd| {
+                if (!subcmd.isHidden()) {
+                    const about = subcmd.getAbout() orelse "";
+                    try writer.print("        .{s} = .{{\n", .{subcmd.name});
+                    try writer.print("            .description = \"{s}\",\n", .{about});
+
+                    // Add subcommand flags
+                    if (subcmd.getFlags().len > 0) {
+                        try writer.print("            .flags = .{{\n", .{});
+                        for (subcmd.getFlags()) |flag| {
+                            const help_text = flag.help orelse "";
+                            if (flag.long) |long| {
+                                try writer.print("                .@\"{s}\" = \"{s}\",\n", .{ long, help_text });
+                            }
+                        }
+                        try writer.print("            }},\n", .{});
+                    }
+
+                    try writer.print("        }},\n", .{});
+                }
+            }
+            // Add builtin commands
+            try writer.print("        .help = .{{ .description = \"Show help information\" }},\n", .{});
+            try writer.print("        .version = .{{ .description = \"Show version information\" }},\n", .{});
+            try writer.print("        .completion = .{{ .description = \"Generate shell completion scripts\" }},\n", .{});
+            try writer.print("    }},\n\n", .{});
+        }
+
+        // Add global flags
+        if (command.getFlags().len > 0) {
+            try writer.print("    flags = .{{\n", .{});
+            for (command.getFlags()) |flag| {
+                const help_text = flag.help orelse "";
+                if (flag.long) |long| {
+                    try writer.print("        .@\"{s}\" = \"{s}\",\n", .{ long, help_text });
+                }
+            }
+            try writer.print("        .help = \"Show help information\",\n", .{});
+            try writer.print("        .version = \"Show version information\",\n", .{});
+            try writer.print("    }},\n", .{});
+        }
+
+        try writer.print("}}\n", .{});
 
         return buf.toOwnedSlice();
     }

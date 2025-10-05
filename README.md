@@ -44,7 +44,7 @@
 * [x] **Positional Arguments:** Required/optional, variadic
 * [x] **Auto-Help:** `-h/--help` always works; custom banners supported
 * [x] **Async Dispatch:** Each command/handler is a Zig async fn
-* [x] **Shell Completion:** Bash, Zsh, Fish, PowerShell
+* [x] **Shell Completion:** Bash, Zsh, Fish, PowerShell, NuShell, GShell (gsh)
 * [x] **Config Integration:** Merge CLI, env, file config
 * [x] **Interactive Prompts:** For passwords, choices, confirmation
 * [x] **Rich Error Handling:** Usage, parse, and runtime errors, colorized output

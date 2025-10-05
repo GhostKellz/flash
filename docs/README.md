@@ -79,4 +79,4 @@ Flash is dual-licensed under MIT and Apache 2.0. See [LICENSE](../LICENSE) for d
 
 ---
 
-*Built with ❤️ by the Flash community*
+⚡ Built with Zig
