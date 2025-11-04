@@ -91,7 +91,7 @@ pub const AsyncRuntime = struct {
         // Show progress dots
         var i: u8 = 0;
         while (i < 3) {
-            std.Thread.sleep(200 * 1000 * 1000); // 200ms
+            std.posix.nanosleep(0, 200 * 1000 * 1000); // 200ms
             std.debug.print(".", .{});
             i += 1;
         }
@@ -303,9 +303,9 @@ pub const AsyncHelpers = struct {
     pub fn networkFetch(io: zsync.Io, ctx: Context.Context) Error.FlashError!void {
         const url = ctx.getString("url") orelse "https://api.github.com/zen";
         std.debug.print("🌐 Fetching from {s} using zsync...\n", .{url});
-        
+
         // Simulate async network call
-        std.Thread.sleep(300 * 1000 * 1000); // 300ms
+        std.posix.nanosleep(0, 300 * 1000 * 1000); // 300ms
         std.debug.print("📡 Response received!\n", .{});
         
         _ = io; // In real implementation, would use io for network operations
@@ -315,9 +315,9 @@ pub const AsyncHelpers = struct {
     pub fn fileProcessor(io: zsync.Io, ctx: Context.Context) Error.FlashError!void {
         const file = ctx.getString("file") orelse "data.txt";
         std.debug.print("📁 Processing file: {s}\n", .{file});
-        
+
         // Simulate async file operations
-        std.Thread.sleep(200 * 1000 * 1000); // 200ms
+        std.posix.nanosleep(0, 200 * 1000 * 1000); // 200ms
         std.debug.print("✅ File processed successfully!\n", .{});
         
         _ = io; // In real implementation, would use io for file operations
@@ -327,9 +327,9 @@ pub const AsyncHelpers = struct {
     pub fn databaseQuery(io: zsync.Io, ctx: Context.Context) Error.FlashError!void {
         const query = ctx.getString("query") orelse "SELECT * FROM users";
         std.debug.print("🗃️ Executing query: {s}\n", .{query});
-        
+
         // Simulate async database call
-        std.Thread.sleep(400 * 1000 * 1000); // 400ms
+        std.posix.nanosleep(0, 400 * 1000 * 1000); // 400ms
         std.debug.print("📊 Query completed! Found 42 rows.\n", .{});
         
         _ = io; // In real implementation, would use io for database operations
@@ -350,10 +350,10 @@ pub const AsyncHelpers = struct {
     /// Example of Future-based operation
     pub fn futureExample(_: zsync.Io, _: Context.Context) Error.FlashError!zsync.Future {
         std.debug.print("🔮 Creating zsync Future...\n", .{});
-        
+
         // In a real implementation, this would create a proper zsync Future
         // that represents an ongoing async operation
-        std.Thread.sleep(100 * 1000 * 1000); // 100ms
+        std.posix.nanosleep(0, 100 * 1000 * 1000); // 100ms
         std.debug.print("✨ Future operation completed!\n", .{});
         
         return zsync.Future{
@@ -377,7 +377,7 @@ pub const AsyncHelpers = struct {
             fn run(args: anytype) !void {
                 _ = args;
                 std.debug.print("⚡ Task running with auto-detected optimal execution model\n", .{});
-                std.Thread.sleep(100 * 1000 * 1000); // 100ms simulation
+                std.posix.nanosleep(0, 100 * 1000 * 1000); // 100ms simulation
             }
         }.run;
         

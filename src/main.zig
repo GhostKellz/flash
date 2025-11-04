@@ -199,15 +199,15 @@ fn ergonomicHandler(ctx: flash.Context) flash.Error!void {
     // Simulate different actions
     if (std.mem.eql(u8, action, "deploy")) {
         std.debug.print("🚀 Deploying application...\n", .{});
-        std.Thread.sleep(500 * 1000 * 1000); // 500ms
+        std.posix.nanosleep(0, 500 * 1000 * 1000); // 500ms
         std.debug.print("✅ Deployment completed!\n", .{});
     } else if (std.mem.eql(u8, action, "build")) {
         std.debug.print("🔨 Building project...\n", .{});
-        std.Thread.sleep(300 * 1000 * 1000); // 300ms
+        std.posix.nanosleep(0, 300 * 1000 * 1000); // 300ms
         std.debug.print("✅ Build completed!\n", .{});
     } else if (std.mem.eql(u8, action, "test")) {
         std.debug.print("🧪 Running tests...\n", .{});
-        std.Thread.sleep(200 * 1000 * 1000); // 200ms
+        std.posix.nanosleep(0, 200 * 1000 * 1000); // 200ms
         std.debug.print("✅ All tests passed!\n", .{});
     } else {
         std.debug.print("❓ Unknown action: {s}\n", .{action});
