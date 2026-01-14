@@ -8,6 +8,13 @@ const zsync = @import("zsync");
 const Context = @import("context.zig");
 const Error = @import("error.zig");
 
+/// Sleep for the specified number of nanoseconds using Futex
+/// This is a Zig 0.16.0 compatible replacement for std.posix.nanosleep
+fn sleepNs(ns: u64) void {
+    var dummy = std.atomic.Value(u32).init(0);
+    std.Thread.Futex.timedWait(&dummy, 0, ns) catch {};
+}
+
 /// Async command handler function signature using zsync.Io
 pub const AsyncHandlerFn = *const fn (zsync.Io, Context.Context) Error.FlashError!void;
 
@@ -91,7 +98,7 @@ pub const AsyncRuntime = struct {
         // Show progress dots
         var i: u8 = 0;
         while (i < 3) {
-            std.posix.nanosleep(0, 200 * 1000 * 1000); // 200ms
+            sleepNs(200 * 1000 * 1000); // 200ms
             std.debug.print(".", .{});
             i += 1;
         }
@@ -305,7 +312,7 @@ pub const AsyncHelpers = struct {
         std.debug.print("🌐 Fetching from {s} using zsync...\n", .{url});
 
         // Simulate async network call
-        std.posix.nanosleep(0, 300 * 1000 * 1000); // 300ms
+        sleepNs(300 * 1000 * 1000); // 300ms
         std.debug.print("📡 Response received!\n", .{});
         
         _ = io; // In real implementation, would use io for network operations
@@ -317,7 +324,7 @@ pub const AsyncHelpers = struct {
         std.debug.print("📁 Processing file: {s}\n", .{file});
 
         // Simulate async file operations
-        std.posix.nanosleep(0, 200 * 1000 * 1000); // 200ms
+        sleepNs(200 * 1000 * 1000); // 200ms
         std.debug.print("✅ File processed successfully!\n", .{});
         
         _ = io; // In real implementation, would use io for file operations
@@ -329,7 +336,7 @@ pub const AsyncHelpers = struct {
         std.debug.print("🗃️ Executing query: {s}\n", .{query});
 
         // Simulate async database call
-        std.posix.nanosleep(0, 400 * 1000 * 1000); // 400ms
+        sleepNs(400 * 1000 * 1000); // 400ms
         std.debug.print("📊 Query completed! Found 42 rows.\n", .{});
         
         _ = io; // In real implementation, would use io for database operations
@@ -353,7 +360,7 @@ pub const AsyncHelpers = struct {
 
         // In a real implementation, this would create a proper zsync Future
         // that represents an ongoing async operation
-        std.posix.nanosleep(0, 100 * 1000 * 1000); // 100ms
+        sleepNs(100 * 1000 * 1000); // 100ms
         std.debug.print("✨ Future operation completed!\n", .{});
         
         return zsync.Future{
@@ -377,7 +384,7 @@ pub const AsyncHelpers = struct {
             fn run(args: anytype) !void {
                 _ = args;
                 std.debug.print("⚡ Task running with auto-detected optimal execution model\n", .{});
-                std.posix.nanosleep(0, 100 * 1000 * 1000); // 100ms simulation
+                sleepNs(100 * 1000 * 1000); // 100ms simulation
             }
         }.run;
         

@@ -127,12 +127,25 @@ pub fn CLI(comptime config: CLIConfig) type {
             };
         }
 
-        /// Run the CLI with process arguments
-        pub fn run(self: *Self) !void {
-            const args = try std.process.argsAlloc(self.allocator);
-            defer std.process.argsFree(self.allocator, args);
+        /// Run the CLI with process Init (Zig 0.16.0+ style)
+        pub fn runWithInit(self: *Self, process_init: std.process.Init) !void {
+            // Collect args from iterator into a slice
+            var args_list: std.ArrayList([]const u8) = .empty;
+            defer args_list.deinit(self.allocator);
 
-            try self.runWithArgs(args);
+            var iter = std.process.Args.Iterator.init(process_init.minimal.args);
+            while (iter.next()) |arg| {
+                try args_list.append(self.allocator, arg);
+            }
+
+            try self.runWithArgs(args_list.items);
+        }
+
+        /// Run the CLI with process arguments (deprecated - use runWithInit for Zig 0.16.0+)
+        pub fn run(_: *Self) !void {
+            // This method requires the new main signature with std.process.Init
+            // For Zig 0.16.0+, use runWithInit() instead
+            @compileError("CLI.run() is deprecated in Zig 0.16.0+. Use runWithInit(init) with the new main signature: pub fn main(init: std.process.Init) !void");
         }
 
         /// Parse arguments and execute the appropriate command

@@ -2,10 +2,15 @@ const std = @import("std");
 const flash = @import("flash");
 const zsync = @import("zsync");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+/// Sleep for the specified number of nanoseconds using Futex
+/// This is a Zig 0.16.0 compatible replacement for std.posix.nanosleep
+fn sleepNs(ns: u64) void {
+    var dummy = std.atomic.Value(u32).init(0);
+    std.Thread.Futex.timedWait(&dummy, 0, ns) catch {};
+}
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
     
     // Create a demo CLI application
     const DemoCLI = flash.CLI(.{
@@ -95,8 +100,8 @@ pub fn main() !void {
         .withAbout("A demonstration of Flash CLI capabilities")
         .withSubcommands(&.{ echo_cmd, greet_cmd, math_cmd, status_cmd, async_cmd, ergonomic_cmd })
         .withHandler(defaultHandler));
-    
-    try cli.run();
+
+    try cli.runWithInit(init);
 }
 
 fn defaultHandler(ctx: flash.Context) flash.Error!void {
@@ -199,15 +204,15 @@ fn ergonomicHandler(ctx: flash.Context) flash.Error!void {
     // Simulate different actions
     if (std.mem.eql(u8, action, "deploy")) {
         std.debug.print("🚀 Deploying application...\n", .{});
-        std.posix.nanosleep(0, 500 * 1000 * 1000); // 500ms
+        sleepNs(500 * 1000 * 1000); // 500ms
         std.debug.print("✅ Deployment completed!\n", .{});
     } else if (std.mem.eql(u8, action, "build")) {
         std.debug.print("🔨 Building project...\n", .{});
-        std.posix.nanosleep(0, 300 * 1000 * 1000); // 300ms
+        sleepNs(300 * 1000 * 1000); // 300ms
         std.debug.print("✅ Build completed!\n", .{});
     } else if (std.mem.eql(u8, action, "test")) {
         std.debug.print("🧪 Running tests...\n", .{});
-        std.posix.nanosleep(0, 200 * 1000 * 1000); // 200ms
+        sleepNs(200 * 1000 * 1000); // 200ms
         std.debug.print("✅ All tests passed!\n", .{});
     } else {
         std.debug.print("❓ Unknown action: {s}\n", .{action});
