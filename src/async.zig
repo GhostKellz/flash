@@ -8,11 +8,12 @@ const zsync = @import("zsync");
 const Context = @import("context.zig");
 const Error = @import("error.zig");
 
-/// Sleep for the specified number of nanoseconds using Futex
-/// This is a Zig 0.16.0 compatible replacement for std.posix.nanosleep
+/// Sleep for the specified number of nanoseconds using Linux nanosleep syscall
 fn sleepNs(ns: u64) void {
-    var dummy = std.atomic.Value(u32).init(0);
-    std.Thread.Futex.timedWait(&dummy, 0, ns) catch {};
+    const seconds = @as(isize, @intCast(ns / 1_000_000_000));
+    const nanoseconds = @as(isize, @intCast(ns % 1_000_000_000));
+    const req = std.os.linux.timespec{ .sec = seconds, .nsec = nanoseconds };
+    _ = std.os.linux.nanosleep(&req, null);
 }
 
 /// Async command handler function signature using zsync.Io
