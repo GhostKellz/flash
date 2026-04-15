@@ -16,6 +16,7 @@ pub const FlashError = error{
     InvalidIntValue,
     InvalidFloatValue,
     InvalidEnumValue,
+    InvalidChoice,
 
     // Command errors
     UnknownCommand,
@@ -26,12 +27,17 @@ pub const FlashError = error{
     AllocationError,
     IOError,
     ConfigError,
+    UnsupportedConfigFormat,
     ValidationError,
 
     // Async errors
     AsyncExecutionFailed,
     OperationCancelled,
     InvalidInput,
+
+    // Internal/unimplemented
+    Unimplemented,
+    SecurityDisabled,
 
     // Help/usage
     HelpRequested,
@@ -88,6 +94,7 @@ pub fn printError(err: FlashError, context: ?ErrorContext) void {
         FlashError.UnknownCommand => std.debug.print("Unknown command", .{}),
         FlashError.MissingSubcommand => std.debug.print("Missing subcommand", .{}),
         FlashError.AmbiguousCommand => std.debug.print("Ambiguous command", .{}),
+        FlashError.InvalidChoice => std.debug.print("Invalid choice", .{}),
         else => std.debug.print("{}", .{err}),
     }
 

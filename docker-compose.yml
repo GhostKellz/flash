@@ -1,0 +1,21 @@
+# Flash CLI Framework - Docker Compose Test Stack
+# Uses host networking (required - no nftables/Docker DNS issues)
+
+services:
+  flash-test:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      network: host
+    image: flash-test:latest
+    container_name: flash-test
+    network_mode: host
+    volumes:
+      # Mount project source
+      - .:/workspace:rw
+      # Mount host Zig installation (read-only)
+      - /opt/zig-0.16.0-dev:/opt/zig:ro
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: /bin/bash

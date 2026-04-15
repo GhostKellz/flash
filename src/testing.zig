@@ -4,10 +4,10 @@
 //! snapshot testing and Cobra's test helpers
 
 const std = @import("std");
-const zsync = @import("zsync");
 const Command = @import("command.zig");
-const CLI = @import("cli.zig");
+const Parser = @import("parser.zig");
 const Context = @import("context.zig");
+const Help = @import("help.zig");
 const Error = @import("error.zig");
 
 /// Test result containing output and errors
@@ -111,32 +111,76 @@ pub const TestHarness = struct {
     }
 
     /// Execute a CLI with arguments and capture output
+    /// Note: Command handlers that use std.debug.print cannot have output captured.
+    /// This harness captures help/version output and tracks execution/exit codes.
     pub fn execute(self: *TestHarness, cli: anytype, args: []const []const u8) !TestResult {
         self.clearBuffers();
 
         const start_time = std.time.nanoTimestamp();
+        var exit_code: u8 = 0;
 
-        // Create mock stdout/stderr writers
         const stdout_writer = self.stdout_buffer.writer();
         const stderr_writer = self.stderr_buffer.writer();
 
-        // Execute the CLI (this would need integration with the actual CLI runner)
-        var exit_code: u8 = 0;
+        // Get root command from CLI
+        const root_command = cli.getRootCommand();
+        const parser = Parser.Parser.init(self.allocator);
+        const help = Help.Help.init(self.allocator);
 
-        // Mock execution - in real implementation this would:
-        // 1. Parse args using the CLI
-        // 2. Execute the command
-        // 3. Capture output and exit code
-        _ = cli;
-        _ = args;
-        _ = stdout_writer;
-        _ = stderr_writer;
+        // Parse arguments
+        var context = parser.parse(root_command, args) catch |err| {
+            switch (err) {
+                Error.FlashError.HelpRequested => {
+                    // Write help to stdout buffer
+                    const program_name = if (args.len > 0) args[0] else root_command.name;
+                    try help.printCommandHelp(stdout_writer, root_command, program_name);
+                    return self.buildResult(0, start_time);
+                },
+                Error.FlashError.VersionRequested => {
+                    // Write version to stdout buffer
+                    const program_name = if (args.len > 0) args[0] else root_command.name;
+                    try stdout_writer.print("⚡ {s}", .{program_name});
+                    if (root_command.getVersion()) |version| {
+                        try stdout_writer.print(" {s}", .{version});
+                    }
+                    try stdout_writer.print("\n", .{});
+                    return self.buildResult(0, start_time);
+                },
+                else => {
+                    try stderr_writer.print("Error: {}\n", .{err});
+                    return self.buildResult(1, start_time);
+                },
+            }
+        };
+        defer context.deinit();
 
-        // Simulate some output for testing
-        try self.stdout_buffer.appendSlice("Mock output\\n");
+        // Find command to execute using full command path
+        var current_command = root_command;
+        const command_path = context.getCommandPath();
+        for (command_path) |segment| {
+            if (current_command.findSubcommand(segment)) |found_cmd| {
+                current_command = found_cmd;
+            } else {
+                try stderr_writer.print("Unknown command: {s}\n", .{segment});
+                return self.buildResult(1, start_time);
+            }
+        }
 
+        // Execute command
+        if (current_command.hasHandler()) {
+            current_command.execute(context) catch |err| {
+                try stderr_writer.print("Execution error: {}\n", .{err});
+                exit_code = 1;
+            };
+        }
+
+        return self.buildResult(exit_code, start_time);
+    }
+
+    /// Build a TestResult from current buffers and timing
+    fn buildResult(self: *TestHarness, exit_code: u8, start_time: i128) !TestResult {
         const end_time = std.time.nanoTimestamp();
-        const execution_time = @intCast(u64, end_time - start_time);
+        const execution_time: u64 = @intCast(@as(u128, @bitCast(end_time - start_time)));
 
         return TestResult{
             .exit_code = exit_code,
@@ -423,17 +467,35 @@ pub const TestUtils = struct {
         };
     }
 
-    /// Mock CLI for testing
-    pub fn mockCLI(allocator: std.mem.Allocator, name: []const u8) anytype {
+    /// Mock CLI for testing - provides minimal CLI interface for test harness
+    pub fn mockCLI(allocator: std.mem.Allocator, name: []const u8) MockCLI {
         _ = allocator;
-        return struct {
-            name: []const u8,
-
-            pub fn init(cli_name: []const u8) @This() {
-                return .{ .name = cli_name };
-            }
-        }.init(name);
+        return MockCLI.init(name);
     }
+
+    /// Minimal mock CLI that satisfies TestHarness.execute() requirements
+    pub const MockCLI = struct {
+        name: []const u8,
+        root_command: Command.Command,
+
+        pub fn init(cli_name: []const u8) MockCLI {
+            return .{
+                .name = cli_name,
+                .root_command = Command.Command.init(cli_name, Command.CommandConfig{}),
+            };
+        }
+
+        pub fn initWithCommand(cli_name: []const u8, command: Command.Command) MockCLI {
+            return .{
+                .name = cli_name,
+                .root_command = command,
+            };
+        }
+
+        pub fn getRootCommand(self: MockCLI) Command.Command {
+            return self.root_command;
+        }
+    };
 };
 
 // Tests for the testing infrastructure itself
@@ -442,13 +504,31 @@ test "test harness basic execution" {
     defer harness.deinit();
 
     const mock_cli = TestUtils.mockCLI(std.testing.allocator, "test");
-    const args = &.{ "command", "arg1" };
+    const args = &.{"test"};
+
+    const result = try harness.execute(mock_cli, args);
+    defer result.deinit();
+
+    // Basic CLI without handler should succeed with no output
+    try result.expectExitCode(0);
+}
+
+test "test harness help request" {
+    var harness = TestHarness.init(std.testing.allocator);
+    defer harness.deinit();
+
+    const cmd = Command.Command.init("myapp", (Command.CommandConfig{})
+        .withAbout("A test application")
+        .withVersion("1.0.0"));
+    const mock_cli = TestUtils.MockCLI.initWithCommand("myapp", cmd);
+    const args = &.{ "myapp", "--help" };
 
     const result = try harness.execute(mock_cli, args);
     defer result.deinit();
 
     try result.expectExitCode(0);
-    try result.expectStdoutContains("Mock output");
+    try result.expectStdoutContains("myapp");
+    try result.expectStdoutContains("A test application");
 }
 
 test "snapshot tester" {

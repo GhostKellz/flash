@@ -1,13 +1,9 @@
 .zig-cache/
 zig-out/
+zig-pkg/
 *.o
 *.exe
+vgcore.*
 archive/
-/archive
+tasks/
 CLAUDE.md
-TODO.md
-ALPHA_INTEGRATIONS.md
-GHOST_INTEGRATIONS.md
-REVIEW25.md
-DOCUMENTATION_COMPLETE.md
-zig-pkg/

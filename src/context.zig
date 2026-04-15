@@ -13,7 +13,7 @@ pub const Context = struct {
     values: std.StringHashMap(Argument.ArgValue),
     flags: std.StringHashMap(bool),
     positional: std.ArrayList(Argument.ArgValue),
-    subcommand: ?[]const u8 = null,
+    command_path: std.ArrayList([]const u8),
     raw_args: []const []const u8,
 
     pub fn init(allocator: std.mem.Allocator, raw_args: []const []const u8) !Context {
@@ -22,14 +22,25 @@ pub const Context = struct {
             .values = std.StringHashMap(Argument.ArgValue).init(allocator),
             .flags = std.StringHashMap(bool).init(allocator),
             .positional = try std.ArrayList(Argument.ArgValue).initCapacity(allocator, 0),
+            .command_path = .empty,
             .raw_args = raw_args,
         };
     }
 
     pub fn deinit(self: *Context) void {
+        // Free any allocated array values
+        var iter = self.values.iterator();
+        while (iter.next()) |entry| {
+            switch (entry.value_ptr.*) {
+                .array => |arr| self.allocator.free(arr),
+                else => {},
+            }
+        }
+
         self.values.deinit();
         self.flags.deinit();
         self.positional.deinit(self.allocator);
+        self.command_path.deinit(self.allocator);
     }
 
     /// Set a named argument value
@@ -47,9 +58,14 @@ pub const Context = struct {
         try self.positional.append(self.allocator, value);
     }
 
-    /// Set the subcommand name
+    /// Push a command onto the command path (for nested subcommands)
+    pub fn pushCommand(self: *Context, command: []const u8) !void {
+        try self.command_path.append(self.allocator, command);
+    }
+
+    /// Set the subcommand name (backwards-compatible, pushes to path)
     pub fn setSubcommand(self: *Context, subcommand: []const u8) void {
-        self.subcommand = subcommand;
+        self.pushCommand(subcommand) catch {};
     }
 
     /// Get a named argument value
@@ -112,9 +128,17 @@ pub const Context = struct {
         return self.positional.items;
     }
 
-    /// Get the subcommand name
+    /// Get the subcommand name (returns last element of command path for backwards compatibility)
     pub fn getSubcommand(self: Context) ?[]const u8 {
-        return self.subcommand;
+        if (self.command_path.items.len > 0) {
+            return self.command_path.items[self.command_path.items.len - 1];
+        }
+        return null;
+    }
+
+    /// Get the full command path for nested subcommands
+    pub fn getCommandPath(self: Context) []const []const u8 {
+        return self.command_path.items;
     }
 
     /// Get the raw arguments passed to the CLI
@@ -179,9 +203,11 @@ pub const Context = struct {
             switch (existing) {
                 .array => |array| {
                     // Add to existing array
-                    var new_array = try self.allocator.alloc(Argument.ArgValue, array.len + 1);
-                    std.mem.copy(Argument.ArgValue, new_array[0..array.len], array);
+                    const new_array = try self.allocator.alloc(Argument.ArgValue, array.len + 1);
+                    @memcpy(new_array[0..array.len], array);
                     new_array[array.len] = value;
+                    // Free old array before replacing
+                    self.allocator.free(array);
                     try self.values.put(name, Argument.ArgValue{ .array = new_array });
                 },
                 else => {
@@ -217,17 +243,29 @@ pub const Context = struct {
     }
 
     /// Print debug information about the context
+    /// Print debug information about the context
     pub fn debug(self: Context, writer: anytype) !void {
-        try writer.print("Context Debug:\n");
-        try writer.print("  Subcommand: {?s}\n", .{self.subcommand});
-        try writer.print("  Arguments:\n");
+        try writer.print("Context Debug:\n", .{});
 
+        // Print command path
+        try writer.print("  Command Path: ", .{});
+        if (self.command_path.items.len == 0) {
+            try writer.print("(root)\n", .{});
+        } else {
+            for (self.command_path.items, 0..) |segment, i| {
+                if (i > 0) try writer.print(" -> ", .{});
+                try writer.print("{s}", .{segment});
+            }
+            try writer.print("\n", .{});
+        }
+
+        try writer.print("  Arguments:\n", .{});
         var value_iter = self.values.iterator();
         while (value_iter.next()) |entry| {
             try writer.print("    {s}: {}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
         }
 
-        try writer.print("  Flags:\n");
+        try writer.print("  Flags:\n", .{});
         var flag_iter = self.flags.iterator();
         while (flag_iter.next()) |entry| {
             try writer.print("    {s}: {}\n", .{ entry.key_ptr.*, entry.value_ptr.* });

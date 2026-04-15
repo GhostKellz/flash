@@ -1,0 +1,7 @@
+# Zig runtime suppressions
+{
+   zig_std_start
+   Memcheck:Leak
+   ...
+   fun:std.start.*
+}

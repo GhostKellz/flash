@@ -153,18 +153,14 @@ pub fn CLI(comptime config: CLIConfig) type {
             var context = try self.parser.parse(self.root_command, args);
             defer context.deinit();
 
-            // Find the command to execute
-            var current_command = self.root_command;
-            if (context.getSubcommand()) |subcmd_name| {
-                if (self.findCommand(self.root_command, subcmd_name)) |found_cmd| {
-                    current_command = found_cmd;
-                } else {
-                    return Error.FlashError.UnknownCommand;
-                }
-            }
+            // Find the command to execute using full command path
+            const command_path = context.getCommandPath();
+            var current_command = self.findCommandByPath(self.root_command, command_path) orelse {
+                return Error.FlashError.UnknownCommand;
+            };
 
             // Check if we need a subcommand but don't have one
-            if (config.subcommand_required and !current_command.hasHandler() and context.getSubcommand() == null) {
+            if (config.subcommand_required and !current_command.hasHandler() and command_path.len == 0) {
                 return Error.FlashError.MissingSubcommand;
             }
 
@@ -180,13 +176,27 @@ pub fn CLI(comptime config: CLIConfig) type {
             }
         }
 
-        /// Find a command by walking the command tree
-        fn findCommand(self: *Self, root: Command.Command, path: []const u8) ?Command.Command {
+        /// Find a command by walking the full command path (supports nested subcommands)
+        fn findCommandByPath(self: *Self, root: Command.Command, path: []const []const u8) ?Command.Command {
             _ = self;
 
-            // For now, just look for direct subcommands
-            // TODO: Support nested subcommand paths like "service start"
-            return root.findSubcommand(path);
+            if (path.len == 0) return root;
+
+            var current = root;
+            for (path) |segment| {
+                if (current.findSubcommand(segment)) |subcmd| {
+                    current = subcmd;
+                } else {
+                    return null;
+                }
+            }
+            return current;
+        }
+
+        /// Find a command by single name (backwards compatible)
+        fn findCommand(self: *Self, root: Command.Command, name: []const u8) ?Command.Command {
+            _ = self;
+            return root.findSubcommand(name);
         }
 
         /// Get the root command (for testing/inspection)
@@ -196,7 +206,7 @@ pub fn CLI(comptime config: CLIConfig) type {
 
         /// Generate shell completion
         pub fn generateCompletion(self: *Self, writer: anytype, shell: []const u8) !void {
-            try self.help.generateCompletion(writer, self.root_command, shell);
+            try self.help.generateCompletionToWriter(writer, self.root_command, shell);
         }
     };
 }

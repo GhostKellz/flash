@@ -1,6 +1,10 @@
 # ⚡ Async CLI Development with Flash
 
-Flash is the first CLI framework designed from the ground up for async operations. This guide covers how to leverage Flash's async capabilities to build high-performance, concurrent CLI applications.
+> **Note**: The async module is currently internal and not part of the public API.
+> This documentation describes planned functionality for future releases.
+> See the v0.3.5 API Changes section in README.md for details.
+
+Flash is designed with async operations in mind. This guide covers planned async capabilities for building high-performance, concurrent CLI applications.
 
 ## 🚀 Why Async CLI?
 

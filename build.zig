@@ -37,6 +37,23 @@ pub fn build(b: *std.Build) void {
     });
     const zsync = zsync_dep.module("zsync");
 
+    // Add zontom dependency (TOML parser)
+    const zontom_dep = b.dependency("zontom", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const zontom = zontom_dep.module("zontom");
+
+    // Version injection from build.zig.zon
+    const version_string = "0.3.5";
+    const version = std.SemanticVersion.parse(version_string) catch unreachable;
+
+    const options = b.addOptions();
+    options.addOption(usize, "version_major", version.major);
+    options.addOption(usize, "version_minor", version.minor);
+    options.addOption(usize, "version_patch", version.patch);
+    options.addOption([]const u8, "version_string", version_string);
+
     const mod = b.addModule("flash", .{
         // The root source file is the "entry point" of this module. Users of
         // this module will only be able to access public declarations contained
@@ -50,6 +67,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .imports = &.{
             .{ .name = "zsync", .module = zsync },
+            .{ .name = "zontom", .module = zontom },
+            .{ .name = "build_options", .module = options.createModule() },
         },
     });
 

@@ -40,25 +40,31 @@ pub const Validators = struct {
         }.validate;
     }
     
-    /// Validate that a string matches a regex pattern
-    pub fn regex(comptime pattern: []const u8) *const fn (Argument.ArgValue) Error.FlashError!void {
+    /// Validate that a string matches a named pattern preset.
+    /// NOTE: This is NOT true regex. Supported patterns:
+    /// - "email": checks for @ symbol (use Validators.email for better validation)
+    /// - "url": checks for http:// or https:// prefix (use Validators.url for better validation)
+    /// For actual pattern matching, use the dedicated validators (email, url, uuid, etc.)
+    pub fn pattern(comptime preset: []const u8) *const fn (Argument.ArgValue) Error.FlashError!void {
         return struct {
             fn validate(value: Argument.ArgValue) Error.FlashError!void {
                 const str = value.asString();
-                // Simple pattern matching for now
-                // TODO: Implement proper regex support
-                if (std.mem.eql(u8, pattern, "email")) {
+                if (std.mem.eql(u8, preset, "email")) {
                     if (std.mem.indexOf(u8, str, "@") == null) {
                         return Error.FlashError.ValidationError;
                     }
-                } else if (std.mem.eql(u8, pattern, "url")) {
+                } else if (std.mem.eql(u8, preset, "url")) {
                     if (!std.mem.startsWith(u8, str, "http://") and !std.mem.startsWith(u8, str, "https://")) {
                         return Error.FlashError.ValidationError;
                     }
                 }
+                // Unknown patterns pass validation (no-op)
             }
         }.validate;
     }
+
+    /// Alias for pattern() - named for discoverability but see pattern() docs
+    pub const regex = pattern;
     
     /// Validate that a string is one of the allowed values
     pub fn oneOf(comptime allowed: []const []const u8) *const fn (Argument.ArgValue) Error.FlashError!void {

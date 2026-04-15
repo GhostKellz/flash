@@ -1,16 +1,17 @@
 //! ⚡️ Flash — The Lightning-Fast CLI Framework for Zig
 //!
-//! Flash is the definitive CLI framework for Zig — inspired by Clap, Cobra, and structopt,
-//! but rebuilt for next-generation async, idiomatic Zig.
+//! A declarative CLI framework inspired by Clap, Cobra, and structopt,
+//! designed for idiomatic Zig with compile-time validation.
 //!
 //! Features:
-//! - Blazing fast with lightning startup and zero-alloc CLI paths
-//! - Batteries included: auto-generated help, subcommands, flags, shell completions
-//! - Async-first: all parsing and dispatch is async (zsync-powered)
-//! - Declarative: use Zig's struct/enum power for arguments and commands
-//! - Error-proof: predictable, type-safe, memory-safe; no panics, no segfaults
+//! - Fast startup with zero-allocation parsing paths
+//! - Auto-generated help, subcommands, flags, positional arguments
+//! - Declarative command definitions using Zig's type system
+//! - Type-safe argument parsing with validation
+//! - Shell completion generation (Bash, Zsh, Fish, PowerShell, NuShell)
 
 const std = @import("std");
+const build_options = @import("build_options");
 
 // Public API exports
 pub const CLI = @import("cli.zig").CLI;
@@ -27,15 +28,23 @@ pub const Help = @import("help.zig").Help;
 pub const Error = @import("error.zig").FlashError;
 pub const Env = @import("env.zig");
 pub const Completion = @import("completion.zig");
-pub const Async = @import("async.zig");
+// Async module removed from public API - implementation is incomplete
+// The module remains internal for future development when zsync integration is finalized
+// Prompts: experimental, password input is VISIBLE (no echo suppression)
 pub const Prompts = @import("prompts.zig");
 pub const Validation = @import("validation.zig");
 pub const Progress = @import("progress.zig");
 pub const Colors = @import("colors.zig");
+// Experimental modules - APIs may change
+// Declarative: uses fieldname_config struct declarations; default values use struct field defaults
 pub const Declarative = @import("declarative.zig");
+// Validators: regex() is actually pattern presets (email, url), not true regex
 pub const Validators = @import("validators.zig");
+// Config: JSON and TOML parsing work; YAML returns UnsupportedConfigFormat error
 pub const Config = @import("config.zig");
-pub const Security = @import("security.zig");
+// Security module removed from public API pending safe implementation
+// See: tasks/code_review.md for details on vulnerabilities
+// Macros: command(), CommandDef, ChainBuilder, deriveCommand work; AttributeCommand is a stub
 pub const Macros = @import("macros.zig");
 
 // Convenience functions for declarative CLI building
@@ -52,11 +61,16 @@ pub const parse = Declarative.parse;
 pub const parseWithConfig = Declarative.parseWithConfig;
 pub const derive = Declarative.derive;
 
-// Version information
-pub const version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
+// Version information (injected from build.zig.zon at compile time)
+pub const version = std.SemanticVersion{
+    .major = build_options.version_major,
+    .minor = build_options.version_minor,
+    .patch = build_options.version_patch,
+};
+pub const version_string = build_options.version_string;
 
 test "flash version" {
     try std.testing.expect(version.major == 0);
-    try std.testing.expect(version.minor == 1);
-    try std.testing.expect(version.patch == 0);
+    try std.testing.expect(version.minor == 3);
+    try std.testing.expect(version.patch == 5);
 }

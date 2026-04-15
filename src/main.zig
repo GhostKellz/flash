@@ -1,14 +1,5 @@
 const std = @import("std");
 const flash = @import("flash");
-const zsync = @import("zsync");
-
-/// Sleep for the specified number of nanoseconds using Linux nanosleep syscall
-fn sleepNs(ns: u64) void {
-    const seconds = @as(isize, @intCast(ns / 1_000_000_000));
-    const nanoseconds = @as(isize, @intCast(ns % 1_000_000_000));
-    const req = std.os.linux.timespec{ .sec = seconds, .nsec = nanoseconds };
-    _ = std.os.linux.nanosleep(&req, null);
-}
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
@@ -16,7 +7,7 @@ pub fn main(init: std.process.Init) !void {
     // Create a demo CLI application
     const DemoCLI = flash.CLI(.{
         .name = "lightning",
-        .version = "0.1.0",
+        .version = flash.version_string,
         .about = "A demo CLI built with Flash - The Lightning-Fast CLI Framework for Zig",
         .subcommand_required = false,
     });
@@ -67,17 +58,7 @@ pub fn main(init: std.process.Init) !void {
     const status_cmd = flash.cmd("status", (flash.CommandConfig{})
         .withAbout("Show status information")
         .withHandler(statusHandler));
-    
-    // Async demo command
-    const async_cmd = flash.cmd("async", (flash.CommandConfig{})
-        .withAbout("Demonstrate async operations with zsync")
-        .withArgs(&.{
-            flash.arg("operation", (flash.ArgumentConfig{})
-                .withHelp("Type of async operation (network, file, db, concurrent)")
-                .withDefault(flash.ArgValue{ .string = "network" })),
-        })
-        .withHandler(asyncHandler));
-    
+
     // Example of new ergonomic chain syntax
     const ergonomic_cmd = flash.chain("ergonomic")
         .about("Showcase Flash's ergonomic API")
@@ -99,7 +80,7 @@ pub fn main(init: std.process.Init) !void {
     // Create the CLI with all commands
     var cli = DemoCLI.init(allocator, (flash.CommandConfig{})
         .withAbout("A demonstration of Flash CLI capabilities")
-        .withSubcommands(&.{ echo_cmd, greet_cmd, math_cmd, status_cmd, async_cmd, ergonomic_cmd })
+        .withSubcommands(&.{ echo_cmd, greet_cmd, math_cmd, status_cmd, ergonomic_cmd })
         .withHandler(defaultHandler));
 
     try cli.runWithInit(init);
@@ -112,19 +93,22 @@ fn defaultHandler(ctx: flash.Context) flash.Error!void {
     std.debug.print("  lightning greet Alice\n", .{});
     std.debug.print("  lightning math add 5 7\n", .{});
     std.debug.print("  lightning status\n", .{});
+    std.debug.print("  lightning ergonomic deploy --verbose\n", .{});
     std.debug.print("\nZig-style commands:\n", .{});
     std.debug.print("  lightning help     (instead of --help)\n", .{});
     std.debug.print("  lightning version  (instead of --version)\n", .{});
-    std.debug.print("  lightning async network  (demo async features)\n", .{});
-    std.debug.print("  lightning ergonomic deploy --verbose  (demo ergonomic API)\n", .{});
-    std.debug.print("\n⚡ Fast. Async. Ergonomic. Zig-native.\n", .{});
+    std.debug.print("\n⚡ Fast. Declarative. Zig-native.\n", .{});
     _ = ctx;
 }
 
 fn echoHandler(ctx: flash.Context) flash.Error!void {
     if (ctx.getString("message")) |message| {
         if (ctx.getFlag("uppercase")) {
-            // Simple uppercase conversion
+            // Simple uppercase conversion with bounds check
+            if (message.len > 256) {
+                std.debug.print("Error: message too long (max 256 characters)\n", .{});
+                return flash.Error.InvalidInput;
+            }
             var buffer: [256]u8 = undefined;
             const upper = std.ascii.upperString(buffer[0..message.len], message);
             std.debug.print("{s}\n", .{upper});
@@ -146,74 +130,40 @@ fn addHandler(ctx: flash.Context) flash.Error!void {
 }
 
 fn statusHandler(ctx: flash.Context) flash.Error!void {
+    _ = ctx;
     std.debug.print("⚡ Flash CLI Status:\n", .{});
-    std.debug.print("  Version: 0.1.0\n", .{});
+    std.debug.print("  Version: {s}\n", .{flash.version_string});
     std.debug.print("  Zig Version: 0.16+\n", .{});
-    std.debug.print("  Features: ✅ Subcommands ✅ Args ✅ Flags ⚡ Lightning Fast\n", .{});
-    std.debug.print("  Async Support: ✅ Powered by zsync\n", .{});
-    
-    // Demonstrate async capabilities
-    std.debug.print("\n🚀 Testing async features:\n", .{});
-    try flash.Async.AsyncHelpers.zsyncV4Example(ctx);
-}
-
-fn asyncHandler(ctx: flash.Context) flash.Error!void {
-    const operation = ctx.getString("operation") orelse "network";
-    
-    std.debug.print("⚡ Flash Async Demo: {s} operation\n", .{operation});
-    
-    // Create async runtime with auto-detected execution model
-    var runtime = flash.Async.AsyncRuntime.init(ctx.allocator, .blocking);
-    defer runtime.deinit();
-    
-    if (std.mem.eql(u8, operation, "network")) {
-        try runtime.runAsync(flash.Async.AsyncHelpers.networkFetch, ctx);
-    } else if (std.mem.eql(u8, operation, "file")) {
-        try runtime.runAsync(flash.Async.AsyncHelpers.fileProcessor, ctx);
-    } else if (std.mem.eql(u8, operation, "db")) {
-        try runtime.runAsync(flash.Async.AsyncHelpers.databaseQuery, ctx);
-    } else if (std.mem.eql(u8, operation, "concurrent")) {
-        try runtime.runAsync(flash.Async.AsyncHelpers.concurrentTasks, ctx);
-    } else if (std.mem.eql(u8, operation, "colorblind")) {
-        try flash.Async.AsyncHelpers.colorblindAsyncDemo(ctx);
-    } else {
-        std.debug.print("❌ Unknown operation: {s}\n", .{operation});
-        std.debug.print("Available operations: network, file, db, concurrent, colorblind\n", .{});
-        return flash.Error.InvalidArgument;
-    }
+    std.debug.print("  Features: ✅ Subcommands ✅ Args ✅ Flags ✅ Help Generation\n", .{});
 }
 
 fn ergonomicHandler(ctx: flash.Context) flash.Error!void {
     const action = ctx.getString("action") orelse "test";
     const verbose = ctx.getFlag("verbose");
     const dry_run = ctx.getFlag("dry-run");
-    
+
     std.debug.print("🎨 Flash Ergonomic API Demo\n", .{});
     std.debug.print("Action: {s}\n", .{action});
-    
+
     if (verbose) {
         std.debug.print("🔧 Verbose mode enabled\n", .{});
-        std.debug.print("📊 This shows how the new chain() API reduces boilerplate\n", .{});
-        std.debug.print("🚀 Making Flash as ergonomic as Rust's clap!\n", .{});
+        std.debug.print("📊 This shows how the chain() API reduces boilerplate\n", .{});
     }
-    
+
     if (dry_run) {
         std.debug.print("🔍 DRY RUN: Would execute '{s}' action\n", .{action});
         return;
     }
-    
-    // Simulate different actions
+
+    // Execute action
     if (std.mem.eql(u8, action, "deploy")) {
         std.debug.print("🚀 Deploying application...\n", .{});
-        sleepNs(500 * 1000 * 1000); // 500ms
         std.debug.print("✅ Deployment completed!\n", .{});
     } else if (std.mem.eql(u8, action, "build")) {
         std.debug.print("🔨 Building project...\n", .{});
-        sleepNs(300 * 1000 * 1000); // 300ms
         std.debug.print("✅ Build completed!\n", .{});
     } else if (std.mem.eql(u8, action, "test")) {
         std.debug.print("🧪 Running tests...\n", .{});
-        sleepNs(200 * 1000 * 1000); // 200ms
         std.debug.print("✅ All tests passed!\n", .{});
     } else {
         std.debug.print("❓ Unknown action: {s}\n", .{action});

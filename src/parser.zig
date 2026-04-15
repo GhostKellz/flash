@@ -217,10 +217,19 @@ pub const Parser = struct {
 
         // Try to match against expected positional arguments
         const expected_args = state.current_command.getArgs();
-        const positional_count = state.context.getPositionalCount();
-        
-        if (positional_count < expected_args.len) {
-            const expected_arg = expected_args[positional_count];
+
+        // Count how many expected positional args have already been set
+        var matched_count: usize = 0;
+        for (expected_args) |expected_arg| {
+            if (state.context.hasArg(expected_arg.name)) {
+                matched_count += 1;
+            } else {
+                break; // Stop at first unset arg
+            }
+        }
+
+        if (matched_count < expected_args.len) {
+            const expected_arg = expected_args[matched_count];
             const parsed_value = try expected_arg.parseValue(state.context.allocator, arg);
             try state.context.setValue(expected_arg.name, parsed_value);
         } else {

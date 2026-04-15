@@ -1,7 +1,10 @@
-//! Security features for Flash CLI
+//! INTERNAL: This module is NOT part of the public API.
 //!
-//! Provides secure credential storage, OAuth flow handling, and other
-//! security-related utilities for CLI applications.
+//! Security features are disabled in v0.3.5 pending a safe implementation.
+//! Known issues: command injection via shell interpolation, plaintext credential
+//! storage, placeholder OAuth returning fake tokens.
+//!
+//! Do not import this module directly. It will be redesigned before re-export.
 
 const std = @import("std");
 const Error = @import("error.zig");
@@ -589,23 +592,19 @@ pub const OAuth = struct {
     }
     
     /// Start local server to receive callback
+    /// NOTE: Not implemented in v0.3.5. Returns error.SecurityDisabled.
     fn startCallbackServer(self: OAuth, expected_state: []const u8) ![]const u8 {
+        _ = self;
         _ = expected_state;
-        // TODO: Implement HTTP server for callback
-        // For now, return a placeholder
-        return try self.allocator.dupe(u8, "placeholder_code");
+        return Error.FlashError.SecurityDisabled;
     }
-    
+
     /// Exchange authorization code for access token
+    /// NOTE: Not implemented in v0.3.5. Returns error.SecurityDisabled.
     fn exchangeCodeForToken(self: OAuth, code: []const u8) !OAuthToken {
+        _ = self;
         _ = code;
-        // TODO: Implement HTTP POST request to token endpoint
-        // For now, return a placeholder token
-        return OAuthToken{
-            .access_token = try self.allocator.dupe(u8, "placeholder_token"),
-            .token_type = "Bearer",
-            .expires_in = 3600,
-        };
+        return Error.FlashError.SecurityDisabled;
     }
 };
 

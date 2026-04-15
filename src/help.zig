@@ -94,6 +94,13 @@ pub const Help = struct {
         if (arg.getHelp()) |help| {
             std.debug.print("\n        {s}", .{help});
         }
+        if (arg.getChoices()) |choices| {
+            std.debug.print("\n        Choices: ", .{});
+            for (choices, 0..) |choice, i| {
+                if (i > 0) std.debug.print(", ", .{});
+                std.debug.print("{s}", .{choice});
+            }
+        }
         std.debug.print("\n", .{});
     }
 
@@ -147,11 +154,39 @@ pub const Help = struct {
         std.debug.print(" - ⚡ Flash\n", .{});
     }
 
+    /// Generate shell completion script and print to debug output
     pub fn generateCompletion(self: Help, command: Command.Command, shell: []const u8) void {
-        _ = self;
-        _ = command;
-        std.debug.print("# Shell completion for {s}\n", .{shell});
-        std.debug.print("# TODO: Implement completion generation\n", .{});
+        const Completion = @import("completion.zig");
+        const shell_type = Completion.Shell.fromString(shell) orelse {
+            std.debug.print("# Error: Unknown shell '{s}'\n", .{shell});
+            std.debug.print("# Supported shells: bash, zsh, fish, powershell, nushell, gsh\n", .{});
+            return;
+        };
+
+        var generator = Completion.CompletionGenerator.init(self.allocator);
+        defer generator.deinit();
+
+        const script = generator.generate(command, shell_type, command.name) catch |err| {
+            std.debug.print("# Error generating completion: {}\n", .{err});
+            return;
+        };
+        defer self.allocator.free(script);
+
+        std.debug.print("{s}", .{script});
+    }
+
+    /// Generate shell completion script and write to a writer
+    pub fn generateCompletionToWriter(self: Help, writer: anytype, command: Command.Command, shell: []const u8) !void {
+        const Completion = @import("completion.zig");
+        const shell_type = Completion.Shell.fromString(shell) orelse return error.InvalidShell;
+
+        var generator = Completion.CompletionGenerator.init(self.allocator);
+        defer generator.deinit();
+
+        const script = try generator.generate(command, shell_type, command.name);
+        defer self.allocator.free(script);
+
+        try writer.writeAll(script);
     }
 
     pub fn printCommandHelp(self: Help, writer: anytype, command: Command.Command, program_name: []const u8) !void {
@@ -232,6 +267,13 @@ pub const Help = struct {
         if (arg.getHelp()) |help| {
             try writer.print("\n        {s}", .{help});
         }
+        if (arg.getChoices()) |choices| {
+            try writer.print("\n        Choices: ", .{});
+            for (choices, 0..) |choice, i| {
+                if (i > 0) try writer.print(", ", .{});
+                try writer.print("{s}", .{choice});
+            }
+        }
         try writer.print("\n", .{});
     }
 
@@ -271,3 +313,60 @@ pub const Help = struct {
         try writer.print("\n", .{});
     }
 };
+
+test "generateCompletionToWriter produces bash script" {
+    const allocator = std.testing.allocator;
+    const help = Help.init(allocator);
+
+    const test_cmd = Command.Command.init("testapp", (Command.CommandConfig{})
+        .withAbout("Test application")
+        .withSubcommands(&.{
+            Command.Command.init("deploy", (Command.CommandConfig{}).withAbout("Deploy the app")),
+            Command.Command.init("status", (Command.CommandConfig{}).withAbout("Show status")),
+        }));
+
+    var buffer = std.ArrayList(u8).init(allocator);
+    defer buffer.deinit();
+
+    try help.generateCompletionToWriter(buffer.writer(), test_cmd, "bash");
+
+    const output = buffer.items;
+    // Verify it's a bash completion script
+    try std.testing.expect(std.mem.indexOf(u8, output, "# ⚡ Flash completion script for Bash") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "testapp") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "deploy") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "status") != null);
+}
+
+test "generateCompletionToWriter produces zsh script" {
+    const allocator = std.testing.allocator;
+    const help = Help.init(allocator);
+
+    const test_cmd = Command.Command.init("mycli", (Command.CommandConfig{})
+        .withSubcommands(&.{
+            Command.Command.init("build", (Command.CommandConfig{}).withAbout("Build project")),
+        }));
+
+    var buffer = std.ArrayList(u8).init(allocator);
+    defer buffer.deinit();
+
+    try help.generateCompletionToWriter(buffer.writer(), test_cmd, "zsh");
+
+    const output = buffer.items;
+    try std.testing.expect(std.mem.indexOf(u8, output, "# ⚡ Flash completion script for Zsh") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "compdef") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "build") != null);
+}
+
+test "generateCompletionToWriter rejects invalid shell" {
+    const allocator = std.testing.allocator;
+    const help = Help.init(allocator);
+
+    const test_cmd = Command.Command.init("app", Command.CommandConfig{});
+
+    var buffer = std.ArrayList(u8).init(allocator);
+    defer buffer.deinit();
+
+    const result = help.generateCompletionToWriter(buffer.writer(), test_cmd, "invalidshell");
+    try std.testing.expectError(error.InvalidShell, result);
+}

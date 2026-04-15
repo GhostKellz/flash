@@ -1,7 +1,24 @@
-//! Declarative command definition system for Flash CLI
+//! Declarative command definition system for Flash CLI (Experimental)
 //!
 //! This module provides a way to define CLI commands using Zig structs
 //! with compile-time validation and automatic parsing.
+//!
+//! USAGE:
+//! Define `fieldname_config` declarations in your struct to configure fields:
+//! ```zig
+//! const MyArgs = struct {
+//!     format: []const u8,
+//!     pub const format_config = FieldConfig{
+//!         .help = "Output format",
+//!         .choices = &.{ "json", "yaml" },
+//!         .validator = myValidator,
+//!     };
+//! };
+//! ```
+//!
+//! LIMITATIONS:
+//! - Default value handling uses struct field defaults, not FieldConfig.default
+//! - For environment variable support, use env.zig directly with your parsed struct
 
 const std = @import("std");
 const Command = @import("command.zig");
@@ -17,15 +34,12 @@ pub const FieldConfig = struct {
     short: ?u8 = null,
     required: bool = false,
     default: ?[]const u8 = null,
-    env: ?[]const u8 = null,
     hidden: bool = false,
     multiple: bool = false,
-    validator: ?FieldValidator = null,
-    
-    pub const FieldValidator = struct {
-        validate_fn: *const fn ([]const u8) bool,
-        error_message: []const u8,
-    };
+    /// Validation function compatible with ArgumentConfig.validator
+    validator: ?*const fn (Argument.ArgValue) Error.FlashError!void = null,
+    /// Constrained choices for enum-like arguments
+    choices: ?[]const []const u8 = null,
 };
 
 /// Alias configuration for field names
@@ -124,26 +138,24 @@ pub fn generateCommand(comptime T: type, allocator: std.mem.Allocator, config: a
                     .required = field_config.required,
                     .hidden = field_config.hidden,
                     .multiple = field_config.multiple,
+                    .validator = field_config.validator,
+                    .choices = field_config.choices,
                 };
-                
+
                 if (field_config.long) |long| {
                     arg_config.long = long;
                 } else {
                     arg_config.long = field.name;
                 }
-                
+
                 if (field_config.short) |short| {
                     arg_config.short = short;
                 }
-                
+
                 if (field_config.default) |default| {
                     arg_config.default = parseDefaultValue(field.type, default);
                 }
-                
-                if (field_config.env) |env| {
-                    arg_config.env = env;
-                }
-                
+
                 try args_list.append(Argument.Argument.init(field.name, arg_config));
             },
         }
@@ -216,10 +228,16 @@ fn parseFromContext(comptime T: type, allocator: std.mem.Allocator, context: Con
     return result;
 }
 
-/// Get field configuration (placeholder for now)
+/// Get field configuration from struct declarations.
+/// NOTE: This currently returns empty config. Field metadata (aliases, env bindings,
+/// validators, hidden, defaults) defined in FieldConfig are not yet wired to struct
+/// field analysis. Use explicit ArgumentConfig/FlagConfig for now.
 fn getFieldConfig(comptime T: type, comptime field_name: []const u8) FieldConfig {
-    _ = T;
-    _ = field_name;
+    // Check for field-specific config declarations like `pub const fieldname_config = FieldConfig{...}`
+    const config_name = field_name ++ "_config";
+    if (@hasDecl(T, config_name)) {
+        return @field(T, config_name);
+    }
     return FieldConfig{};
 }
 
@@ -284,20 +302,193 @@ test "declarative struct parsing" {
 
 test "declarative optional fields" {
     const allocator = std.testing.allocator;
-    
+
     const TestArgs = struct {
         required_arg: []const u8,
         optional_arg: ?[]const u8 = null,
         flag: bool = false,
     };
-    
+
     const args = [_][]const u8{ "test", "--required-arg", "value" };
-    
+
     const parsed = try parseWithArgs(TestArgs, allocator, &args, .{
         .name = "test",
     });
-    
+
     try std.testing.expectEqualStrings("value", parsed.required_arg);
     try std.testing.expectEqual(@as(?[]const u8, null), parsed.optional_arg);
     try std.testing.expectEqual(false, parsed.flag);
+}
+
+test "getFieldConfig reads struct declarations" {
+    const ConfiguredArgs = struct {
+        name: []const u8,
+        pub const name_config = FieldConfig{
+            .help = "Your name",
+            .required = true,
+        };
+    };
+
+    const config = getFieldConfig(ConfiguredArgs, "name");
+    try std.testing.expectEqualStrings("Your name", config.help.?);
+    try std.testing.expectEqual(true, config.required);
+}
+
+test "getFieldConfig returns empty for unconfigured fields" {
+    const UnconfiguredArgs = struct {
+        value: i32,
+    };
+
+    const config = getFieldConfig(UnconfiguredArgs, "value");
+    try std.testing.expectEqual(@as(?[]const u8, null), config.help);
+    try std.testing.expectEqual(false, config.required);
+}
+
+fn testPositiveValidator(value: Argument.ArgValue) Error.FlashError!void {
+    if (value.asInt() <= 0) {
+        return Error.FlashError.ValidationError;
+    }
+}
+
+test "declarative validator wiring" {
+    const allocator = std.testing.allocator;
+
+    const ValidatedArgs = struct {
+        count: i32,
+        pub const count_config = FieldConfig{
+            .help = "A positive number",
+            .validator = testPositiveValidator,
+        };
+    };
+
+    const command = try generateCommand(ValidatedArgs, allocator, .{ .name = "validated" });
+    const args = command.getArgs();
+    try std.testing.expect(args.len == 1);
+    try std.testing.expect(args[0].config.validator != null);
+}
+
+test "declarative choices wiring" {
+    const allocator = std.testing.allocator;
+
+    const ChoiceArgs = struct {
+        format: []const u8,
+        pub const format_config = FieldConfig{
+            .help = "Output format",
+            .choices = &[_][]const u8{ "json", "yaml", "toml" },
+        };
+    };
+
+    const command = try generateCommand(ChoiceArgs, allocator, .{ .name = "choiced" });
+    const args = command.getArgs();
+    try std.testing.expect(args.len == 1);
+    try std.testing.expect(args[0].config.choices != null);
+    try std.testing.expectEqual(@as(usize, 3), args[0].config.choices.?.len);
+}
+
+test "declarative hidden field wiring" {
+    const allocator = std.testing.allocator;
+
+    const HiddenArgs = struct {
+        visible_arg: []const u8,
+        hidden_arg: []const u8,
+        pub const hidden_arg_config = FieldConfig{
+            .hidden = true,
+        };
+    };
+
+    const command = try generateCommand(HiddenArgs, allocator, .{ .name = "hidden" });
+    const args = command.getArgs();
+    try std.testing.expectEqual(@as(usize, 2), args.len);
+
+    // Find hidden arg and verify it's marked hidden
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg.name, "hidden_arg")) {
+            try std.testing.expectEqual(true, arg.config.hidden);
+        }
+    }
+}
+
+test "declarative multiple field wiring" {
+    const allocator = std.testing.allocator;
+
+    const MultiArgs = struct {
+        files: []const u8,
+        pub const files_config = FieldConfig{
+            .multiple = true,
+            .help = "Input files",
+        };
+    };
+
+    const command = try generateCommand(MultiArgs, allocator, .{ .name = "multi" });
+    const args = command.getArgs();
+    try std.testing.expectEqual(@as(usize, 1), args.len);
+    try std.testing.expectEqual(true, args[0].config.multiple);
+}
+
+test "declarative short and long flags" {
+    const allocator = std.testing.allocator;
+
+    const FlagArgs = struct {
+        output: []const u8,
+        pub const output_config = FieldConfig{
+            .short = 'o',
+            .long = "output",
+            .help = "Output file",
+        };
+    };
+
+    const command = try generateCommand(FlagArgs, allocator, .{ .name = "flagged" });
+    const args = command.getArgs();
+    try std.testing.expectEqual(@as(usize, 1), args.len);
+    try std.testing.expectEqual(@as(u8, 'o'), args[0].config.short.?);
+    try std.testing.expectEqualStrings("output", args[0].config.long.?);
+}
+
+test "derive config generation" {
+    const TestDerive = derive(.{
+        .help = true,
+        .version = "1.0.0",
+        .about = "Test app",
+    });
+
+    try std.testing.expectEqualStrings("1.0.0", TestDerive.derive_config.version.?);
+    try std.testing.expectEqualStrings("Test app", TestDerive.derive_config.about.?);
+}
+
+test "generateCommand with full config" {
+    const allocator = std.testing.allocator;
+
+    const FullArgs = struct {
+        input: []const u8,
+        output: []const u8,
+        verbose: bool = false,
+        format: []const u8,
+
+        pub const input_config = FieldConfig{
+            .help = "Input file",
+            .required = true,
+            .short = 'i',
+        };
+        pub const output_config = FieldConfig{
+            .help = "Output file",
+            .short = 'o',
+            .long = "output",
+        };
+        pub const format_config = FieldConfig{
+            .choices = &[_][]const u8{ "json", "csv" },
+        };
+    };
+
+    const command = try generateCommand(FullArgs, allocator, .{
+        .name = "converter",
+        .about = "File converter",
+        .version = "2.0.0",
+    });
+
+    try std.testing.expectEqualStrings("converter", command.name);
+    try std.testing.expectEqualStrings("File converter", command.getAbout().?);
+
+    // Should have 3 args (input, output, format) and 1 flag (verbose)
+    try std.testing.expectEqual(@as(usize, 3), command.getArgs().len);
+    try std.testing.expectEqual(@as(usize, 1), command.getFlags().len);
 }

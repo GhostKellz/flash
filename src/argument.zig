@@ -107,6 +107,7 @@ pub const ArgumentConfig = struct {
     multiple: bool = false, // Can be specified multiple times
     hidden: bool = false, // Hidden from help
     validator: ?*const fn (ArgValue) Error.FlashError!void = null,
+    choices: ?[]const []const u8 = null, // Constrained values (enum-like)
 
     pub fn withHelp(self: ArgumentConfig, help: []const u8) ArgumentConfig {
         var config = self;
@@ -147,6 +148,13 @@ pub const ArgumentConfig = struct {
     pub fn setHidden(self: ArgumentConfig) ArgumentConfig {
         var config = self;
         config.hidden = true;
+        return config;
+    }
+
+    /// Set allowed values for this argument (enum-like constraint)
+    pub fn withChoices(self: ArgumentConfig, choices: []const []const u8) ArgumentConfig {
+        var config = self;
+        config.choices = choices;
         return config;
     }
 };
@@ -206,6 +214,25 @@ pub const Argument = struct {
             },
         };
 
+        // Validate against choices if present
+        if (self.config.choices) |choices| {
+            const str_value = switch (value) {
+                .string => |s| s,
+                .@"enum" => |e| e,
+                else => return Error.FlashError.InvalidInput,
+            };
+            var found = false;
+            for (choices) |choice| {
+                if (std.mem.eql(u8, str_value, choice)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                return Error.FlashError.InvalidChoice;
+            }
+        }
+
         // Run validator if present
         if (self.config.validator) |validator| {
             try validator(value);
@@ -236,6 +263,16 @@ pub const Argument = struct {
         } else {
             return self.config.long != null and std.mem.eql(u8, self.config.long.?, flag);
         }
+    }
+
+    /// Get constrained choices for this argument
+    pub fn getChoices(self: Argument) ?[]const []const u8 {
+        return self.config.choices;
+    }
+
+    /// Check if this argument has constrained choices
+    pub fn hasChoices(self: Argument) bool {
+        return self.config.choices != null;
     }
 };
 
@@ -277,4 +314,24 @@ test "argument configuration" {
     try std.testing.expectEqual(true, arg.matchesFlag("t"));
     try std.testing.expectEqual(true, arg.matchesFlag("test"));
     try std.testing.expectEqual(false, arg.matchesFlag("other"));
+}
+
+test "argument with choices validation" {
+    const allocator = std.testing.allocator;
+    const choices = &[_][]const u8{ "debug", "info", "warn", "error" };
+
+    const arg = Argument.init("level", (ArgumentConfig{})
+        .withHelp("Log level")
+        .withChoices(choices));
+
+    try std.testing.expect(arg.hasChoices());
+    try std.testing.expectEqual(@as(usize, 4), arg.getChoices().?.len);
+
+    // Valid choice should succeed
+    const valid = try arg.parseValue(allocator, "info");
+    try std.testing.expectEqualStrings("info", valid.asString());
+
+    // Invalid choice should fail
+    const invalid_result = arg.parseValue(allocator, "verbose");
+    try std.testing.expectError(Error.FlashError.InvalidChoice, invalid_result);
 }

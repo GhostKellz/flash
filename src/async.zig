@@ -1,7 +1,19 @@
-//! ⚡ Flash Async Integration
+//! INTERNAL MODULE - NOT PART OF PUBLIC API
 //!
-//! Provides async command execution using zsync - the next-gen async library for Zig
-//! Uses zsync's colorblind async where the same code works across ALL execution models
+//! This async integration module is experimental and incomplete.
+//! It is not exported from root.zig and should not be used directly.
+//!
+//! WARNING: Most functions in this module return error.Unimplemented.
+//! This is intentional - the module exists for future development but
+//! is not functional in v0.3.5.
+//!
+//! Current limitations:
+//! - AsyncRuntime.io is set to undefined (passed to handlers as undefined)
+//! - All execution methods return error.Unimplemented
+//! - Future combinators return error.Unimplemented
+//! - sleepNs() uses Linux-specific syscall (not portable)
+//!
+//! This module will be completed when zsync integration is finalized.
 
 const std = @import("std");
 const zsync = @import("zsync");
@@ -46,34 +58,30 @@ pub const AsyncRuntime = struct {
     }
     
     /// Auto-detect optimal execution model and run task using zsync.run()
+    /// NOTE: This function is not implemented in v0.3.5. Returns error.Unimplemented.
     pub fn runAuto(allocator: std.mem.Allocator, task: anytype, args: anytype) Error.FlashError!void {
         _ = allocator;
-        // For now, simulate zsync execution - replace with actual zsync.run when available
-        std.debug.print("⚡ Auto-detecting optimal execution model...\n", .{});
-        return task(args) catch |err| switch (err) {
-            error.OutOfMemory => Error.FlashError.OutOfMemory,
-            else => Error.FlashError.AsyncExecutionFailed,
-        };
+        _ = task;
+        _ = args;
+        return Error.FlashError.Unimplemented;
     }
-    
+
     /// Run task with blocking execution using zsync.runBlocking()
+    /// NOTE: This function is not implemented in v0.3.5. Returns error.Unimplemented.
     pub fn runBlocking(allocator: std.mem.Allocator, task: anytype, args: anytype) Error.FlashError!void {
         _ = allocator;
-        std.debug.print("🔄 Running with blocking execution model...\n", .{});
-        return task(args) catch |err| switch (err) {
-            error.OutOfMemory => Error.FlashError.OutOfMemory,
-            else => Error.FlashError.AsyncExecutionFailed,
-        };
+        _ = task;
+        _ = args;
+        return Error.FlashError.Unimplemented;
     }
-    
+
     /// Run task with high-performance execution using zsync.runHighPerf()
+    /// NOTE: This function is not implemented in v0.3.5. Returns error.Unimplemented.
     pub fn runHighPerf(allocator: std.mem.Allocator, task: anytype, args: anytype) Error.FlashError!void {
         _ = allocator;
-        std.debug.print("🔥 Running with high-performance execution model...\n", .{});
-        return task(args) catch |err| switch (err) {
-            error.OutOfMemory => Error.FlashError.OutOfMemory,
-            else => Error.FlashError.AsyncExecutionFailed,
-        };
+        _ = task;
+        _ = args;
+        return Error.FlashError.Unimplemented;
     }
     
     pub fn deinit(self: *AsyncRuntime) void {
@@ -82,43 +90,36 @@ pub const AsyncRuntime = struct {
     }
     
     /// Execute an async command handler using zsync
+    /// NOTE: This function is not implemented in v0.3.5. Returns error.Unimplemented.
     pub fn runAsync(self: *AsyncRuntime, handler: AsyncHandlerFn, ctx: Context.Context) Error.FlashError!void {
-        std.debug.print("⚡ Running async command with {s} execution model...\n", .{@tagName(self.execution_model)});
-        return handler(self.io, ctx);
+        _ = self;
+        _ = handler;
+        _ = ctx;
+        return Error.FlashError.Unimplemented;
     }
-    
+
     /// Execute an async operation with progress tracking
+    /// NOTE: This function is not implemented in v0.3.5. Returns error.Unimplemented.
     pub fn runWithProgress(
-        self: *AsyncRuntime, 
-        handler: AsyncHandlerFn, 
+        self: *AsyncRuntime,
+        handler: AsyncHandlerFn,
         ctx: Context.Context,
-        progress_msg: []const u8
+        progress_msg: []const u8,
     ) Error.FlashError!void {
-        std.debug.print("⚡ {s}...\n", .{progress_msg});
-        
-        // Show progress dots
-        var i: u8 = 0;
-        while (i < 3) {
-            sleepNs(200 * 1000 * 1000); // 200ms
-            std.debug.print(".", .{});
-            i += 1;
-        }
-        std.debug.print(" ");
-        
-        try self.runAsync(handler, ctx);
-        std.debug.print("✅ Done!\n", .{});
+        _ = self;
+        _ = handler;
+        _ = ctx;
+        _ = progress_msg;
+        return Error.FlashError.Unimplemented;
     }
-    
+
     /// Execute async operation with Future handling and cancellation support
+    /// NOTE: This function is not implemented in v0.3.5. Returns error.Unimplemented.
     pub fn runFuture(self: *AsyncRuntime, handler: FutureHandlerFn, ctx: Context.Context) Error.FlashError!void {
-        std.debug.print("⚡ Running future-based async command...\n", .{});
-        var future = try handler(self.io, ctx);
-        defer future.cancel(self.io) catch {};
-        
-        // In a real implementation, this would properly await the future
-        // For now, we'll simulate completion
-        std.debug.print("✅ Future completed!\n", .{});
-        return;
+        _ = self;
+        _ = handler;
+        _ = ctx;
+        return Error.FlashError.Unimplemented;
     }
     
     /// Execute operation with cooperative cancellation
@@ -197,66 +198,39 @@ pub const AsyncRuntime = struct {
 };
 
 /// Future combinators for advanced async operations
+/// NOTE: All combinators return error.Unimplemented in v0.3.5.
 pub const FutureCombinators = struct {
     /// Race multiple futures, return the first to complete
+    /// NOTE: Not implemented in v0.3.5.
     pub fn race(_: std.mem.Allocator, futures: []zsync.Future) Error.FlashError!zsync.Future {
-        std.debug.print("🏁 Racing {d} futures...\n", .{futures.len});
-        
-        // In a real implementation, this would use zsync's race combinator
-        // For now, simulate by taking the first future
-        if (futures.len == 0) return Error.FlashError.InvalidInput;
-        
-        return futures[0];
+        _ = futures;
+        return Error.FlashError.Unimplemented;
     }
-    
+
     /// Wait for all futures to complete
+    /// NOTE: Not implemented in v0.3.5.
     pub fn all(allocator: std.mem.Allocator, futures: []zsync.Future) Error.FlashError!zsync.Future {
-        std.debug.print("⏳ Waiting for all {d} futures to complete...\n", .{futures.len});
-        
-        // In a real implementation, this would use zsync's all combinator
-        // For now, simulate completion of all futures
-        for (futures, 0..) |_, i| {
-            std.debug.print("✅ Future {d} completed\n", .{i + 1});
-        }
-        
-        return zsync.Future{
-            .ptr = undefined,
-            .vtable = undefined,
-            .state = std.atomic.Value(zsync.Future.State).init(.completed),
-            .wakers = std.ArrayList(zsync.Future.Waker).init(allocator),
-            .cancel_token = null,
-            .timeout = null,
-            .cancellation_chain = null,
-            .error_info = null,
-        };
+        _ = allocator;
+        _ = futures;
+        return Error.FlashError.Unimplemented;
     }
-    
+
     /// Add timeout to a future
+    /// NOTE: Not implemented in v0.3.5.
     pub fn timeout(_: std.mem.Allocator, future: zsync.Future, timeout_ms: u64) Error.FlashError!zsync.Future {
-        std.debug.print("⏰ Adding {d}ms timeout to future...\n", .{timeout_ms});
-        
-        // In a real implementation, this would use zsync's timeout combinator
-        // For now, return the original future with timeout metadata
-        const timed_future = future;
-        // timed_future.timeout = timeout_ms; // Would set actual timeout in real implementation
-        
-        return timed_future;
+        _ = future;
+        _ = timeout_ms;
+        return Error.FlashError.Unimplemented;
     }
-    
+
     /// Select the first future to complete from multiple options
+    /// NOTE: Not implemented in v0.3.5.
     pub fn select(_: std.mem.Allocator, futures: []zsync.Future) Error.FlashError!struct {
         index: usize,
         result: zsync.Future,
     } {
-        std.debug.print("🎯 Selecting from {d} futures...\n", .{futures.len});
-        
-        if (futures.len == 0) return Error.FlashError.InvalidInput;
-        
-        // In a real implementation, this would properly select the first completed future
-        return .{
-            .index = 0,
-            .result = futures[0],
-        };
+        _ = futures;
+        return Error.FlashError.Unimplemented;
     }
 };
 

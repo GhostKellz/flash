@@ -1,6 +1,11 @@
-//! ⚡ Flash Interactive Prompts
+//! ⚡ Flash Interactive Prompts (Experimental)
 //!
-//! Provides interactive prompts for missing arguments, passwords, selections, and confirmations
+//! Provides interactive prompts for missing arguments, passwords, selections, and confirmations.
+//!
+//! LIMITATIONS:
+//! - Password input is currently VISIBLE (no terminal echo suppression)
+//! - Password prompts are demonstration-quality, not production-ready
+//! - For secure password handling, use a dedicated terminal library
 
 const std = @import("std");
 const Argument = @import("argument.zig");
@@ -182,10 +187,10 @@ pub const Prompter = struct {
     
     /// Prompt for missing argument with appropriate type
     pub fn promptForArgument(self: Prompter, arg: Argument.Argument) !Argument.ArgValue {
-        const prompt_msg = if (arg.getHelp()) |help| 
+        const prompt_msg = if (arg.getHelp()) |help|
             try std.fmt.allocPrint(self.allocator, "{s} ({s})", .{arg.name, help})
-        else 
-            try self.fmt.allocPrint(self.allocator, "{s}", .{arg.name});
+        else
+            try std.fmt.allocPrint(self.allocator, "{s}", .{arg.name});
         defer self.allocator.free(prompt_msg);
         
         const prompt_config = switch (arg.arg_type) {
@@ -221,8 +226,21 @@ pub const Prompter = struct {
                 return Argument.ArgValue{ .bool = bool_val };
             },
             .@"enum" => {
+                // If argument has choices, show them as select
+                if (arg.getChoices()) |choices| {
+                    const select_config = PromptConfig.select(prompt_msg, choices);
+                    const value = try self.promptSelect(select_config);
+                    return Argument.ArgValue{ .@"enum" = value };
+                }
                 const value = try self.promptText(prompt_config);
                 return Argument.ArgValue{ .@"enum" = value };
+            },
+            .array => {
+                const text = try self.promptText(prompt_config);
+                // Return as single-element array for now
+                var arr = try self.allocator.alloc(Argument.ArgValue, 1);
+                arr[0] = Argument.ArgValue{ .string = text };
+                return Argument.ArgValue{ .array = arr };
             },
         }
     }
@@ -292,8 +310,39 @@ test "prompt config creation" {
     const text_config = PromptConfig.text("Enter your name");
     try std.testing.expectEqual(PromptType.text, text_config.prompt_type);
     try std.testing.expectEqualStrings("Enter your name", text_config.message);
-    
+
     const confirm_config = PromptConfig.confirm("Continue?").withDefault("y");
     try std.testing.expectEqual(PromptType.confirm, confirm_config.prompt_type);
     try std.testing.expectEqualStrings("y", confirm_config.default_value.?);
+}
+
+test "prompt config password" {
+    const password_config = PromptConfig.password("Enter password");
+    try std.testing.expectEqual(PromptType.password, password_config.prompt_type);
+    try std.testing.expectEqualStrings("Enter password", password_config.message);
+}
+
+test "prompt config select" {
+    const choices = &[_][]const u8{ "option1", "option2", "option3" };
+    const select_config = PromptConfig.select("Choose option", choices);
+    try std.testing.expectEqual(PromptType.select, select_config.prompt_type);
+    try std.testing.expectEqual(@as(usize, 3), select_config.choices.len);
+}
+
+test "prompt config optional" {
+    const optional_config = PromptConfig.text("Optional field").optional();
+    try std.testing.expectEqual(false, optional_config.required);
+}
+
+test "prompter config no colors" {
+    const config = (PrompterConfig{}).noColors();
+    try std.testing.expectEqual(false, config.use_colors);
+}
+
+test "prompter config defaults" {
+    const config = PrompterConfig{};
+    try std.testing.expectEqual(true, config.use_colors);
+    try std.testing.expectEqualStrings("⚡", config.prompt_prefix);
+    try std.testing.expectEqualStrings("✅", config.success_prefix);
+    try std.testing.expectEqualStrings("❌", config.error_prefix);
 }

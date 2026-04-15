@@ -1,11 +1,14 @@
 //! Configuration file support for Flash CLI
 //!
-//! Supports TOML, JSON, and YAML configuration files with automatic
+//! Supports TOML and JSON configuration files with automatic
 //! parsing and merging with CLI arguments.
+//!
+//! TOML parsing is powered by zontom (https://github.com/ghostkellz/zontom)
 
 const std = @import("std");
 const Error = @import("error.zig");
 const Argument = @import("argument.zig");
+const zontom = @import("zontom");
 
 /// Supported configuration file formats
 pub const ConfigFormat = enum {
@@ -122,22 +125,18 @@ pub const ConfigParser = struct {
         };
     }
     
-    /// Parse TOML configuration (simplified implementation)
+    /// Parse TOML configuration using zontom
     fn parseToml(self: ConfigParser, comptime T: type, content: []const u8) !T {
-        _ = self;
-        _ = content;
-        // TODO: Implement TOML parsing
-        // For now, return a zeroed struct
-        return std.mem.zeroes(T);
+        return zontom.parseInto(T, self.allocator, content) catch {
+            return Error.FlashError.ConfigError;
+        };
     }
-    
-    /// Parse YAML configuration (simplified implementation)
-    fn parseYaml(self: ConfigParser, comptime T: type, content: []const u8) !T {
+
+    /// Parse YAML configuration (not yet implemented)
+    fn parseYaml(self: ConfigParser, comptime T: type, content: []const u8) Error.FlashError!T {
         _ = self;
         _ = content;
-        // TODO: Implement YAML parsing
-        // For now, return a zeroed struct
-        return std.mem.zeroes(T);
+        return Error.FlashError.UnsupportedConfigFormat;
     }
     
     /// Merge configuration with existing struct
@@ -311,37 +310,37 @@ pub const ConfigTemplate = struct {
     fn generateToml(self: ConfigTemplate, comptime T: type, type_info: anytype, writer: anytype) !void {
         _ = self;
         _ = T;
-        
+
         if (type_info == .Struct) {
             inline for (type_info.Struct.fields) |field| {
                 try writer.print("{s} = ", .{field.name});
-                
+
                 switch (field.type) {
                     bool => try writer.print("false\n", .{}),
                     i32, i64, u32, u64 => try writer.print("0\n", .{}),
                     f32, f64 => try writer.print("0.0\n", .{}),
                     []const u8 => try writer.print("\"\"\n", .{}),
-                    else => try writer.print("# TODO: Configure {s}\n", .{field.name}),
+                    else => try writer.print("\"\" # unsupported type\n", .{}),
                 }
             }
         }
     }
-    
+
     /// Generate YAML template
     fn generateYaml(self: ConfigTemplate, comptime T: type, type_info: anytype, writer: anytype) !void {
         _ = self;
         _ = T;
-        
+
         if (type_info == .Struct) {
             inline for (type_info.Struct.fields) |field| {
                 try writer.print("{s}: ", .{field.name});
-                
+
                 switch (field.type) {
                     bool => try writer.print("false\n", .{}),
                     i32, i64, u32, u64 => try writer.print("0\n", .{}),
                     f32, f64 => try writer.print("0.0\n", .{}),
                     []const u8 => try writer.print("\"\"\n", .{}),
-                    else => try writer.print("# TODO: Configure {s}\n", .{field.name}),
+                    else => try writer.print("\"\" # unsupported type\n", .{}),
                 }
             }
         }
@@ -401,19 +400,84 @@ test "config merge" {
 
 test "config template generation" {
     const allocator = std.testing.allocator;
-    
+
     const Config = struct {
         name: []const u8 = "default",
         count: i32 = 0,
         debug: bool = false,
     };
-    
+
     const template = ConfigTemplate.init(allocator);
     const json_template = try template.generate(Config, .json);
     defer allocator.free(json_template);
-    
+
     // Check that template contains expected fields
     try std.testing.expect(std.mem.indexOf(u8, json_template, "name") != null);
     try std.testing.expect(std.mem.indexOf(u8, json_template, "count") != null);
     try std.testing.expect(std.mem.indexOf(u8, json_template, "debug") != null);
+}
+
+test "TOML parsing with zontom" {
+    const allocator = std.testing.allocator;
+    const parser = ConfigParser.init(allocator);
+
+    const Config = struct {
+        name: []const u8 = "default",
+        count: i64 = 0,
+        enabled: bool = false,
+    };
+
+    const toml_content =
+        \\name = "test"
+        \\count = 42
+        \\enabled = true
+    ;
+
+    const config = try parser.parseContent(Config, toml_content, .toml);
+    try std.testing.expectEqualStrings("test", config.name);
+    try std.testing.expectEqual(@as(i64, 42), config.count);
+    try std.testing.expectEqual(true, config.enabled);
+}
+
+test "YAML parsing returns UnsupportedConfigFormat" {
+    const allocator = std.testing.allocator;
+    const parser = ConfigParser.init(allocator);
+
+    const Config = struct {
+        name: []const u8 = "default",
+    };
+
+    const result = parser.parseContent(Config, "name: test", .yaml);
+    try std.testing.expectError(Error.FlashError.UnsupportedConfigFormat, result);
+}
+
+test "TOML parsing with nested tables" {
+    const allocator = std.testing.allocator;
+    const parser = ConfigParser.init(allocator);
+
+    const Database = struct {
+        host: []const u8 = "localhost",
+        port: i64 = 5432,
+    };
+
+    const Config = struct {
+        name: []const u8 = "app",
+        debug: bool = false,
+        database: Database = .{},
+    };
+
+    const toml_content =
+        \\name = "myapp"
+        \\debug = true
+        \\
+        \\[database]
+        \\host = "db.example.com"
+        \\port = 3306
+    ;
+
+    const config = try parser.parseContent(Config, toml_content, .toml);
+    try std.testing.expectEqualStrings("myapp", config.name);
+    try std.testing.expectEqual(true, config.debug);
+    try std.testing.expectEqualStrings("db.example.com", config.database.host);
+    try std.testing.expectEqual(@as(i64, 3306), config.database.port);
 }

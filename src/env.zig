@@ -292,8 +292,9 @@ pub const LayeredConfig = struct {
                     }
                 },
                 .file => {
-                    // TODO: Implement file configuration parsing
-                    // This would read from JSON/TOML/YAML files
+                    // File-based configuration is not implemented in env.zig
+                    // Use Config.ConfigParser for file-based configuration instead
+                    return error.FileConfigNotSupported;
                 },
                 .cli => {
                     result = try mergeConfigs(T, result, cli_args);
@@ -384,27 +385,67 @@ test "env prefix generation" {
 
 test "layered configuration" {
     const allocator = std.testing.allocator;
-    
+
     const ConfigStruct = struct {
         name: []const u8 = "default",
         count: i32 = 1,
         verbose: bool = false,
     };
-    
+
     const sources = [_]ConfigSource{ .defaults, .environment, .cli };
     const config = LayeredConfig.init(allocator, &sources)
         .withEnvHierarchy(EnvHierarchy.init("TEST_"));
-    
+
     const cli_args = ConfigStruct{
         .name = "cli_name",
         .count = 5,
         .verbose = true,
     };
-    
+
     const result = try config.parse(ConfigStruct, cli_args);
-    
+
     // CLI should override defaults
     try std.testing.expectEqualStrings("cli_name", result.name);
     try std.testing.expectEqual(@as(i32, 5), result.count);
     try std.testing.expectEqual(true, result.verbose);
+}
+
+test "layered config file source returns FileConfigNotSupported" {
+    const allocator = std.testing.allocator;
+
+    const ConfigStruct = struct {
+        name: []const u8 = "default",
+    };
+
+    // Include .file source which should return error
+    const sources = [_]ConfigSource{ .defaults, .file };
+    const config = LayeredConfig.init(allocator, &sources);
+
+    const cli_args = ConfigStruct{ .name = "test" };
+    const result = config.parse(ConfigStruct, cli_args);
+
+    try std.testing.expectError(error.FileConfigNotSupported, result);
+}
+
+test "env config builder methods" {
+    const config = (EnvConfig{})
+        .withEnvVar("MY_VAR")
+        .withPrefix("PREFIX_")
+        .disableTransform();
+
+    try std.testing.expectEqualStrings("MY_VAR", config.env_var.?);
+    try std.testing.expectEqualStrings("PREFIX_", config.prefix.?);
+    try std.testing.expectEqual(false, config.transform_names);
+}
+
+test "env hierarchy builder methods" {
+    const hierarchy = EnvHierarchy.init("APP_")
+        .withCaseSensitive(true)
+        .withOverrideCli(true)
+        .disableTransform();
+
+    try std.testing.expectEqualStrings("APP_", hierarchy.prefix);
+    try std.testing.expectEqual(true, hierarchy.case_sensitive);
+    try std.testing.expectEqual(true, hierarchy.override_cli);
+    try std.testing.expectEqual(false, hierarchy.transform_names);
 }
