@@ -1,0 +1,57 @@
+# ⚡ Flash completion script for Bash
+# Generated for snapapp
+# Support dynamic completions, flags, and file completion
+
+_snapapp_dynamic_completion() {
+    local cmd="$1"
+    local current="$2"
+    shift 2
+    "$cmd" __complete bash "$current" "$@" 2>/dev/null || echo ""
+}
+
+_snapapp_completions() {
+    local cur prev words cword
+    _init_completion || return
+
+    if [[ "$cur" == -* ]]; then
+        local flags="-h --help -V --version -v --verbose "
+        COMPREPLY=($(compgen -W "$flags" -- "$cur"))
+        return
+    fi
+
+    case ${cword} in
+        1)
+            local commands="serve help version completion"
+            COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+            ;;
+        *)
+            local completion_output
+            local -a completions
+            local no_file_comp=0
+            local directory_only=0
+            local file_extensions=""
+            completions=$(_snapapp_dynamic_completion "snapapp" "$cur" "${words[@]}")
+            while IFS= read -r line; do
+                [[ -z "$line" ]] && continue
+                case "$line" in
+                    __flash_directive__:no_file_comp) no_file_comp=1 ;;
+                    __flash_directive__:filter_dirs) directory_only=1 ;;
+                    __flash_directive__:filter_file_ext:*) file_extensions="${line#__flash_directive__:filter_file_ext:}" ;;
+                    *) completions+=("$line") ;;
+                esac
+            done <<< "$completions"
+            if [[ ${#completions[@]} -gt 0 ]]; then
+                COMPREPLY=($(compgen -W "${completions[*]}" -- "$cur"))
+            elif [[ $directory_only -eq 1 ]]; then
+                _filedir -d
+            elif [[ -n "$file_extensions" ]]; then
+                local ext_glob="@(${file_extensions//,/|})"
+                _filedir "$ext_glob"
+            elif [[ $no_file_comp -eq 0 ]]; then
+                _filedir
+            fi
+            ;;
+    esac
+}
+
+complete -F _snapapp_completions snapapp

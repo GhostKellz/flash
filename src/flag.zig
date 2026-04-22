@@ -12,6 +12,7 @@ pub const FlagConfig = struct {
     help: ?[]const u8 = null,
     short: ?u8 = null,
     long: ?[]const u8 = null,
+    aliases: []const []const u8 = &.{},
     default: bool = false,
     hidden: bool = false,
     global: bool = false, // Available in all subcommands
@@ -31,6 +32,12 @@ pub const FlagConfig = struct {
     pub fn withLong(self: FlagConfig, long: []const u8) FlagConfig {
         var config = self;
         config.long = long;
+        return config;
+    }
+
+    pub fn withAliases(self: FlagConfig, aliases: []const []const u8) FlagConfig {
+        var config = self;
+        config.aliases = aliases;
         return config;
     }
 
@@ -70,7 +77,17 @@ pub const Flag = struct {
         if (flag.len == 1) {
             return self.config.short != null and self.config.short.? == flag[0];
         } else {
-            return self.config.long != null and std.mem.eql(u8, self.config.long.?, flag);
+            if (self.config.long) |long| {
+                if (std.mem.eql(u8, long, flag)) return true;
+            } else if (std.mem.eql(u8, self.name, flag)) {
+                return true;
+            }
+
+            for (self.config.aliases) |alias| {
+                if (std.mem.eql(u8, alias, flag)) return true;
+            }
+
+            return false;
         }
     }
 
@@ -105,6 +122,7 @@ pub const Flag = struct {
                 .default = Argument.ArgValue{ .bool = self.config.default },
                 .short = self.config.short,
                 .long = self.config.long,
+                .aliases = self.config.aliases,
                 .multiple = false,
                 .hidden = self.config.hidden,
                 .validator = null,

@@ -65,34 +65,32 @@ pub fn parse(comptime T: type, allocator: std.mem.Allocator) !T {
 }
 
 /// Parse a struct type with configuration
-pub fn parseWithConfig(comptime T: type, allocator: std.mem.Allocator, config: anytype) !T {
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-    
-    return parseWithArgs(T, allocator, args, config);
+pub fn parseWithConfig(comptime T: type, _: std.mem.Allocator, _: anytype) !T {
+    @compileError("Declarative.parseWithConfig() is not available on this Zig baseline; use Declarative.parseWithArgs() and pass argv explicitly.");
 }
 
 /// Parse a struct type with specific arguments
 pub fn parseWithArgs(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8, config: anytype) !T {
     const command = try generateCommand(T, allocator, config);
+    defer deinitGeneratedCommand(allocator, command);
     const parser = @import("parser.zig").Parser.init(allocator);
-    
+
     var context = try parser.parse(command, args);
     defer context.deinit();
-    
+
     return try parseFromContext(T, allocator, context);
 }
 
 /// Generate a Flash command from a struct type
 pub fn generateCommand(comptime T: type, allocator: std.mem.Allocator, config: anytype) !Command.Command {
     const type_info = @typeInfo(T);
-    
-    if (type_info != .Struct) {
+
+    if (type_info != .@"struct") {
         @compileError("parseCommand can only be used with struct types");
     }
-    
+
     var command_config = Command.CommandConfig{};
-    
+
     // Set basic command info from config
     if (@hasField(@TypeOf(config), "about")) {
         command_config.about = config.about;
@@ -103,14 +101,14 @@ pub fn generateCommand(comptime T: type, allocator: std.mem.Allocator, config: a
     if (@hasField(@TypeOf(config), "version")) {
         command_config.version = config.version;
     }
-    
+
     // Generate arguments and flags from struct fields
-    var args_list = std.ArrayList(Argument.Argument).init(allocator);
-    var flags_list = std.ArrayList(Flag.Flag).init(allocator);
-    
-    inline for (type_info.Struct.fields) |field| {
+    var args_list: std.ArrayListUnmanaged(Argument.Argument) = .empty;
+    var flags_list: std.ArrayListUnmanaged(Flag.Flag) = .empty;
+
+    inline for (type_info.@"struct".fields) |field| {
         const field_config = getFieldConfig(T, field.name);
-        
+
         switch (field.type) {
             bool => {
                 // Boolean fields become flags
@@ -118,18 +116,18 @@ pub fn generateCommand(comptime T: type, allocator: std.mem.Allocator, config: a
                     .help = field_config.help,
                     .hidden = field_config.hidden,
                 };
-                
+
                 if (field_config.short) |short| {
                     flag_config.short = short;
                 }
-                
+
                 if (field_config.long) |long| {
                     flag_config.long = long;
                 } else {
                     flag_config.long = field.name;
                 }
-                
-                try flags_list.append(Flag.Flag.init(field.name, flag_config));
+
+                try flags_list.append(allocator, Flag.Flag.init(field.name, flag_config));
             },
             else => {
                 // Non-boolean fields become arguments
@@ -145,7 +143,7 @@ pub fn generateCommand(comptime T: type, allocator: std.mem.Allocator, config: a
                 if (field_config.long) |long| {
                     arg_config.long = long;
                 } else {
-                    arg_config.long = field.name;
+                    arg_config.long = cliName(field.name);
                 }
 
                 if (field_config.short) |short| {
@@ -156,34 +154,42 @@ pub fn generateCommand(comptime T: type, allocator: std.mem.Allocator, config: a
                     arg_config.default = parseDefaultValue(field.type, default);
                 }
 
-                try args_list.append(Argument.Argument.init(field.name, arg_config));
+                try args_list.append(allocator, makeTypedArgument(field.type, field.name, arg_config));
             },
         }
     }
-    
-    command_config.args = try args_list.toOwnedSlice();
-    command_config.flags = try flags_list.toOwnedSlice();
-    
-    const command_name = if (@hasField(@TypeOf(config), "name")) 
-        config.name 
-    else 
+
+    command_config.args = try args_list.toOwnedSlice(allocator);
+    command_config.flags = try flags_list.toOwnedSlice(allocator);
+
+    const command_name = if (@hasField(@TypeOf(config), "name"))
+        config.name
+    else
         @typeName(T);
-    
+
     return Command.Command.init(command_name, command_config);
+}
+
+pub fn deinitGeneratedCommand(allocator: std.mem.Allocator, command: Command.Command) void {
+    allocator.free(command.config.args);
+    allocator.free(command.config.flags);
 }
 
 /// Parse values from context into struct instance
 fn parseFromContext(comptime T: type, allocator: std.mem.Allocator, context: Context.Context) !T {
     var result: T = undefined;
     const type_info = @typeInfo(T);
-    
-    inline for (type_info.Struct.fields) |field| {
+
+    inline for (type_info.@"struct".fields) |field| {
         const field_value = switch (field.type) {
-            bool => context.getFlag(field.name),
+            bool => {
+                @field(result, field.name) = context.getFlag(field.name);
+                continue;
+            },
             []const u8 => context.getString(field.name),
             ?[]const u8 => context.getString(field.name),
-            i32 => context.getInt(field.name),
-            ?i32 => context.getInt(field.name),
+            i32 => if (context.getInt(field.name)) |value| @as(?i32, @intCast(value)) else null,
+            ?i32 => if (context.getInt(field.name)) |value| @as(?i32, @intCast(value)) else null,
             f64 => context.getFloat(field.name),
             ?f64 => context.getFloat(field.name),
             else => blk: {
@@ -191,7 +197,7 @@ fn parseFromContext(comptime T: type, allocator: std.mem.Allocator, context: Con
                 if (field.type == @TypeOf(null)) {
                     break :blk null;
                 }
-                
+
                 // Handle arrays/slices
                 if (comptime std.meta.trait.isSlice(field.type)) {
                     const slice_info = @typeInfo(field.type);
@@ -200,16 +206,16 @@ fn parseFromContext(comptime T: type, allocator: std.mem.Allocator, context: Con
                         break :blk try context.getStringArray(field.name, allocator);
                     }
                 }
-                
+
                 @compileError("Unsupported field type: " ++ @typeName(field.type));
             },
         };
-        
+
         if (field_value) |value| {
             @field(result, field.name) = value;
         } else {
             // Use default value if available
-            if (field.default_value) |default_ptr| {
+            if (field.default_value_ptr) |default_ptr| {
                 const default_value = @as(*const field.type, @ptrCast(@alignCast(default_ptr))).*;
                 @field(result, field.name) = default_value;
             } else {
@@ -218,14 +224,40 @@ fn parseFromContext(comptime T: type, allocator: std.mem.Allocator, context: Con
                 if (field_config.required) {
                     return Error.FlashError.MissingRequiredArgument;
                 }
-                
+
                 // Use zero value for non-optional types
                 @field(result, field.name) = std.mem.zeroes(field.type);
             }
         }
     }
-    
+
     return result;
+}
+
+fn makeTypedArgument(comptime T: type, name: []const u8, config: Argument.ArgumentConfig) Argument.Argument {
+    return switch (T) {
+        []const u8, ?[]const u8 => Argument.Argument.typed([]const u8, name, config),
+        i32, ?i32 => Argument.Argument.typed(i32, name, config),
+        i64, ?i64 => Argument.Argument.typed(i64, name, config),
+        f32, ?f32 => Argument.Argument.typed(f32, name, config),
+        f64, ?f64 => Argument.Argument.typed(f64, name, config),
+        else => if (comptime std.meta.trait.isSlice(T))
+            Argument.Argument.typed([]const []const u8, name, config)
+        else
+            Argument.Argument.init(name, config),
+    };
+}
+
+fn cliName(comptime field_name: []const u8) []const u8 {
+    const normalized = comptime blk: {
+        var result: [field_name.len]u8 = undefined;
+        for (field_name, 0..) |char, index| {
+            result[index] = if (char == '_') '-' else char;
+        }
+        break :blk result;
+    };
+
+    return std.fmt.comptimePrint("{s}", .{normalized});
 }
 
 /// Get field configuration from struct declarations.
@@ -256,23 +288,24 @@ fn parseDefaultValue(comptime T: type, value: []const u8) Argument.ArgValue {
 pub fn generateHelp(comptime T: type, allocator: std.mem.Allocator, config: anytype) ![]const u8 {
     const command = try generateCommand(T, allocator, config);
     const help = @import("help.zig").Help.init(allocator);
-    
-    var buffer = std.ArrayList(u8).init(allocator);
+
+    var buffer: std.ArrayList(u8) = .empty;
+    defer buffer.deinit(allocator);
     const writer = buffer.writer();
-    
+
     try help.printCommandHelp(writer, command, @typeName(T));
-    return buffer.toOwnedSlice();
+    return try buffer.toOwnedSlice(allocator);
 }
 
 /// Derive macro for automatic implementation
 pub fn derive(comptime config: DeriveConfig) type {
     return struct {
         pub const derive_config = config;
-        
+
         pub fn generateHelp(comptime T: type, allocator: std.mem.Allocator) ![]const u8 {
             return @import("declarative.zig").generateHelp(T, allocator, config);
         }
-        
+
         pub fn parse(comptime T: type, allocator: std.mem.Allocator) !T {
             return @import("declarative.zig").parseWithConfig(T, allocator, config);
         }
@@ -281,20 +314,20 @@ pub fn derive(comptime config: DeriveConfig) type {
 
 test "declarative struct parsing" {
     const allocator = std.testing.allocator;
-    
+
     const TestArgs = struct {
         name: []const u8,
         count: i32 = 1,
         verbose: bool = false,
     };
-    
+
     const args = [_][]const u8{ "test", "--name", "Alice", "--count", "5", "--verbose" };
-    
+
     const parsed = try parseWithArgs(TestArgs, allocator, &args, .{
         .about = "Test command",
         .name = "test",
     });
-    
+
     try std.testing.expectEqualStrings("Alice", parsed.name);
     try std.testing.expectEqual(@as(i32, 5), parsed.count);
     try std.testing.expectEqual(true, parsed.verbose);
@@ -362,6 +395,7 @@ test "declarative validator wiring" {
     };
 
     const command = try generateCommand(ValidatedArgs, allocator, .{ .name = "validated" });
+    defer deinitGeneratedCommand(allocator, command);
     const args = command.getArgs();
     try std.testing.expect(args.len == 1);
     try std.testing.expect(args[0].config.validator != null);
@@ -379,6 +413,7 @@ test "declarative choices wiring" {
     };
 
     const command = try generateCommand(ChoiceArgs, allocator, .{ .name = "choiced" });
+    defer deinitGeneratedCommand(allocator, command);
     const args = command.getArgs();
     try std.testing.expect(args.len == 1);
     try std.testing.expect(args[0].config.choices != null);
@@ -397,6 +432,7 @@ test "declarative hidden field wiring" {
     };
 
     const command = try generateCommand(HiddenArgs, allocator, .{ .name = "hidden" });
+    defer deinitGeneratedCommand(allocator, command);
     const args = command.getArgs();
     try std.testing.expectEqual(@as(usize, 2), args.len);
 
@@ -420,6 +456,7 @@ test "declarative multiple field wiring" {
     };
 
     const command = try generateCommand(MultiArgs, allocator, .{ .name = "multi" });
+    defer deinitGeneratedCommand(allocator, command);
     const args = command.getArgs();
     try std.testing.expectEqual(@as(usize, 1), args.len);
     try std.testing.expectEqual(true, args[0].config.multiple);
@@ -438,6 +475,7 @@ test "declarative short and long flags" {
     };
 
     const command = try generateCommand(FlagArgs, allocator, .{ .name = "flagged" });
+    defer deinitGeneratedCommand(allocator, command);
     const args = command.getArgs();
     try std.testing.expectEqual(@as(usize, 1), args.len);
     try std.testing.expectEqual(@as(u8, 'o'), args[0].config.short.?);
@@ -484,6 +522,7 @@ test "generateCommand with full config" {
         .about = "File converter",
         .version = "2.0.0",
     });
+    defer deinitGeneratedCommand(allocator, command);
 
     try std.testing.expectEqualStrings("converter", command.name);
     try std.testing.expectEqualStrings("File converter", command.getAbout().?);

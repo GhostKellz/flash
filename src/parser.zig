@@ -14,6 +14,7 @@ const Error = @import("error.zig");
 const ParseState = struct {
     args: []const []const u8,
     index: usize = 0,
+    root_command: Command.Command,
     current_command: Command.Command,
     context: *Context.Context,
 
@@ -51,11 +52,12 @@ pub const Parser = struct {
 
     /// Parse command line arguments into a context
     pub fn parse(self: Parser, command: Command.Command, args: []const []const u8) Error.FlashError!Context.Context {
-        var context = try Context.Context.init(self.allocator, args);
+        var context = Context.Context.init(self.allocator, args);
         errdefer context.deinit();
 
         var state = ParseState{
             .args = args,
+            .root_command = command,
             .current_command = command,
             .context = &context,
         };
@@ -92,7 +94,13 @@ pub const Parser = struct {
                 } else if (std.mem.eql(u8, arg, "version")) {
                     return Error.FlashError.VersionRequested;
                 }
-                
+
+                if (std.mem.eql(u8, arg, "completion") or std.mem.eql(u8, arg, "__complete")) {
+                    state.context.setSubcommand(arg);
+                    state.advance();
+                    continue;
+                }
+
                 // Check if it's a subcommand
                 if (state.current_command.findSubcommand(arg)) |subcmd| {
                     state.context.setSubcommand(arg);
@@ -133,8 +141,8 @@ pub const Parser = struct {
             return Error.FlashError.VersionRequested;
         }
 
-        // Find the flag in the current command
-        if (state.current_command.findFlag(flag_name)) |flag| {
+        // Find the flag in current scope, including inherited global flags
+        if (self.findFlagInScope(state, flag_name)) |flag| {
             if (flag_value) |value| {
                 // Flag with value: --flag=value
                 const parsed_value = try flag.toArgument().parseValue(self.allocator, value);
@@ -144,12 +152,16 @@ pub const Parser = struct {
                 try state.context.setFlag(flag.name, true);
             }
         } else {
-            // Check if it's an argument that accepts a value
-            if (state.current_command.findArg(flag_name)) |found_arg| {
+            // Check if it's an argument that accepts a value in current scope
+            if (self.findArgInScope(state, flag_name)) |found_arg| {
                 var value: []const u8 = undefined;
                 if (flag_value) |fv| {
                     value = fv;
                 } else if (state.hasMore()) {
+                    const next = state.current().?;
+                    if (std.mem.startsWith(u8, next, "-")) {
+                        return Error.FlashError.MissingRequiredArgument;
+                    }
                     value = state.current().?;
                     state.advance();
                 } else {
@@ -183,12 +195,12 @@ pub const Parser = struct {
                 return Error.FlashError.VersionRequested;
             }
 
-            // Find the flag in the current command
-            if (state.current_command.findFlag(&flag_name)) |flag| {
+            // Find the flag in current scope, including inherited global flags
+            if (self.findFlagInScope(state, &flag_name)) |flag| {
                 try state.context.setFlag(flag.name, true);
             } else {
                 // Check if it's an argument that needs a value
-                if (state.current_command.findArg(&flag_name)) |found_arg| {
+                if (self.findArgInScope(state, &flag_name)) |found_arg| {
                     var value: []const u8 = undefined;
 
                     // If this is the last character and there are more args, use the next arg
@@ -251,9 +263,7 @@ pub const Parser = struct {
     }
 
     /// Set default values for arguments that weren't provided
-    fn setDefaults(self: Parser, state: *ParseState) Error.FlashError!void {
-        _ = self;
-
+    fn setDefaults(_: Parser, state: *ParseState) Error.FlashError!void {
         for (state.current_command.getArgs()) |arg| {
             if (!state.context.hasArg(arg.name)) {
                 if (arg.getDefault()) |default| {
@@ -262,13 +272,50 @@ pub const Parser = struct {
             }
         }
 
-        for (state.current_command.getFlags()) |flag| {
+        const scoped_flags = try Command.Command.collectScopedFlags(state.root_command, state.context.getCommandPath(), state.context.allocator);
+        defer state.context.allocator.free(scoped_flags);
+
+        for (scoped_flags) |flag| {
             if (!state.context.hasFlag(flag.name)) {
                 try state.context.setFlag(flag.name, flag.getDefault());
             }
         }
     }
+
+    fn findFlagInScope(_: Parser, state: *const ParseState, name: []const u8) ?Flag.Flag {
+        const scoped_flags = Command.Command.collectScopedFlags(state.root_command, state.context.getCommandPath(), state.context.allocator) catch return null;
+        defer state.context.allocator.free(scoped_flags);
+
+        for (scoped_flags) |flag| {
+            if (flag.matchesFlag(name)) return flag;
+        }
+        return null;
+    }
+
+    fn findArgInScope(self: Parser, state: *const ParseState, name: []const u8) ?Argument.Argument {
+        _ = self;
+        return state.current_command.findArg(name);
+    }
 };
+
+test "parser recognizes global flag after subcommand" {
+    const allocator = std.testing.allocator;
+    const parser = Parser.init(allocator);
+
+    const cmd = Command.Command.init("app", (Command.CommandConfig{})
+        .withFlags(&.{Flag.Flag.init("verbose", (Flag.FlagConfig{})
+            .withLong("verbose")
+            .setGlobal())})
+        .withSubcommands(&.{Command.Command.init("serve", Command.CommandConfig{})}));
+
+    const args = [_][]const u8{ "app", "serve", "--verbose" };
+
+    var context = try parser.parse(cmd, &args);
+    defer context.deinit();
+
+    try std.testing.expectEqualStrings("serve", context.getSubcommand().?);
+    try std.testing.expectEqual(true, context.getFlag("verbose"));
+}
 
 test "parser basic functionality" {
     const allocator = std.testing.allocator;

@@ -132,14 +132,9 @@ Run the CLI with command line arguments from `std.process.args()`.
 **Example:**
 
 ```zig
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-
-    const cli = MyCLI.init(gpa.allocator());
-    defer cli.deinit();
-
-    try cli.run();
+pub fn main(init: std.process.Init) !void {
+    var cli = MyCLI.init(init.gpa, root_config);
+    try cli.runWithInit(init);
 }
 ```
 
@@ -159,20 +154,13 @@ try cli.runWithArgs(args);
 
 ### `runAsync(self: Self) !void`
 
-Run the CLI asynchronously using zsync.
+This is not part of the current public CLI API.
+Use `runWithInit(init)` or `runWithArgs(args)` for public execution, and use command-level `run_async` handlers only when working on Flash's internal async surfaces.
 
 **Example:**
 
 ```zig
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-
-    const cli = MyCLI.init(gpa.allocator());
-    defer cli.deinit();
-
-    try cli.runAsync();
-}
+// Public applications should use runWithInit(init) instead.
 ```
 
 ### `generateHelp(self: Self, writer: anytype) !void`
@@ -260,7 +248,7 @@ const ComplexCLI = flash.CLI(.{
                             .multiple = true,
                         }),
                     },
-                    .run_async = runContainer,
+                    .run = runContainer,
                 }),
                 flash.cmd("list", .{
                     .about = "List containers",
@@ -282,7 +270,7 @@ const ComplexCLI = flash.CLI(.{
                     .args = &.{
                         flash.arg("image", .{ .help = "Image to pull" }),
                     },
-                    .run_async = pullImage,
+                    .run = pullImage,
                 }),
             },
         }),
@@ -329,7 +317,7 @@ pub fn main() !void {
     const cli = MyCLI.init(gpa.allocator());
     defer cli.deinit();
 
-    cli.run() catch |err| switch (err) {
+    cli.runWithArgs(&.{ "myapp", "deploy" }) catch |err| switch (err) {
         error.InvalidArgument => {
             std.debug.print("Invalid argument provided\n");
             std.process.exit(1);
@@ -369,7 +357,7 @@ test "CLI help generation" {
 }
 
 test "CLI with arguments" {
-    var harness = flash.testing.TestHarness.init(std.testing.allocator);
+    var harness = flash.Testing.TestHarness.init(std.testing.allocator);
     defer harness.deinit();
 
     const result = try harness.execute(MyCLI, &.{"greet", "World"});

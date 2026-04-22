@@ -12,16 +12,16 @@ pub const Context = struct {
     allocator: std.mem.Allocator,
     values: std.StringHashMap(Argument.ArgValue),
     flags: std.StringHashMap(bool),
-    positional: std.ArrayList(Argument.ArgValue),
-    command_path: std.ArrayList([]const u8),
+    positional: std.ArrayListUnmanaged(Argument.ArgValue),
+    command_path: std.ArrayListUnmanaged([]const u8),
     raw_args: []const []const u8,
 
-    pub fn init(allocator: std.mem.Allocator, raw_args: []const []const u8) !Context {
+    pub fn init(allocator: std.mem.Allocator, raw_args: []const []const u8) Context {
         return .{
             .allocator = allocator,
             .values = std.StringHashMap(Argument.ArgValue).init(allocator),
             .flags = std.StringHashMap(bool).init(allocator),
-            .positional = try std.ArrayList(Argument.ArgValue).initCapacity(allocator, 0),
+            .positional = .empty,
             .command_path = .empty,
             .raw_args = raw_args,
         };
@@ -178,25 +178,25 @@ pub const Context = struct {
                 else => return null,
             }
         }
-        
+
         // Check if we have it as a string that needs to be split
         if (self.get(name)) |value| {
             const str = value.asString();
             // Split by comma for basic array support
-            var result = std.ArrayList([]const u8).init(allocator);
+            var result: std.ArrayListUnmanaged([]const u8) = .empty;
             var it = std.mem.splitScalar(u8, str, ',');
             while (it.next()) |item| {
                 const trimmed = std.mem.trim(u8, item, " \t");
                 if (trimmed.len > 0) {
-                    try result.append(trimmed);
+                    try result.append(allocator, trimmed);
                 }
             }
-            return result.toOwnedSlice();
+            return result.toOwnedSlice(allocator);
         }
-        
+
         return null;
     }
-    
+
     /// Add a value to an array argument
     pub fn addArrayValue(self: *Context, name: []const u8, value: Argument.ArgValue) !void {
         if (self.values.get(name)) |existing| {
@@ -228,15 +228,15 @@ pub const Context = struct {
 
     /// Get a typed value with a default
     pub fn getWithDefault(self: Context, comptime T: type, name: []const u8, default: T) T {
-        const arg_type = Argument.ArgType.fromType(T);
         if (self.get(name)) |value| {
-            return switch (arg_type) {
-                .string => value.asString(),
+            const type_info = @typeInfo(T);
+            return switch (type_info) {
+                .pointer => |ptr| if (ptr.child == u8) value.asString() else default,
                 .int => @intCast(value.asInt()),
                 .float => @floatCast(value.asFloat()),
                 .bool => value.asBool(),
-                .@"enum" => value.asString(),
-                .array => value.asArray(),
+                .@"enum" => @enumFromInt(@as(std.meta.Tag(T), @truncate(value.asInt()))),
+                else => default,
             };
         }
         return default;

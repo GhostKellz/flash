@@ -1,0 +1,4 @@
+line=1
+column=21
+message=Unterminated string literal
+suggestion=Add a closing quote

@@ -3,7 +3,7 @@ const flash = @import("flash");
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
-    
+
     // Create a demo CLI application
     const DemoCLI = flash.CLI(.{
         .name = "lightning",
@@ -11,7 +11,7 @@ pub fn main(init: std.process.Init) !void {
         .about = "A demo CLI built with Flash - The Lightning-Fast CLI Framework for Zig",
         .subcommand_required = false,
     });
-    
+
     // Define some example commands
     const echo_cmd = flash.cmd("echo", (flash.CommandConfig{})
         .withAbout("Echo your message back")
@@ -27,7 +27,7 @@ pub fn main(init: std.process.Init) !void {
                 .withHelp("Convert to uppercase")),
         })
         .withHandler(echoHandler));
-    
+
     const greet_cmd = flash.cmd("greet", (flash.CommandConfig{})
         .withAbout("Greet someone")
         .withAliases(&.{ "hello", "hi" })
@@ -37,7 +37,7 @@ pub fn main(init: std.process.Init) !void {
                 .withDefault(flash.ArgValue{ .string = "World" })),
         })
         .withHandler(greetHandler));
-    
+
     const math_add_cmd = flash.cmd("add", (flash.CommandConfig{})
         .withAbout("Add two numbers")
         .withArgs(&.{
@@ -49,11 +49,11 @@ pub fn main(init: std.process.Init) !void {
                 .setRequired()),
         })
         .withHandler(addHandler));
-    
+
     const math_cmd = flash.cmd("math", (flash.CommandConfig{})
         .withAbout("Mathematical operations")
         .withSubcommands(&.{math_add_cmd}));
-    
+
     // Example command with better arg handling
     const status_cmd = flash.cmd("status", (flash.CommandConfig{})
         .withAbout("Show status information")
@@ -133,7 +133,7 @@ fn statusHandler(ctx: flash.Context) flash.Error!void {
     _ = ctx;
     std.debug.print("⚡ Flash CLI Status:\n", .{});
     std.debug.print("  Version: {s}\n", .{flash.version_string});
-    std.debug.print("  Zig Version: 0.16+\n", .{});
+    std.debug.print("  Zig Version: 0.17.0-dev\n", .{});
     std.debug.print("  Features: ✅ Subcommands ✅ Args ✅ Flags ✅ Help Generation\n", .{});
 }
 

@@ -1,10 +1,9 @@
 # ⚡ Async CLI Development with Flash
 
 > **Note**: The async module is currently internal and not part of the public API.
-> This documentation describes planned functionality for future releases.
-> See the v0.3.5 API Changes section in README.md for details.
+> This documentation describes internal and future-facing functionality.
 
-Flash is designed with async operations in mind. This guide covers planned async capabilities for building high-performance, concurrent CLI applications.
+Flash has internal async implementation work in progress. This guide describes exploratory and future-facing patterns rather than the current stable public API.
 
 ## 🚀 Why Async CLI?
 
@@ -15,16 +14,14 @@ Traditional CLI frameworks process commands sequentially, but modern CLI tools o
 - Manage background tasks
 - Provide responsive user interfaces
 
-Flash's async-first design makes these scenarios natural and performant.
+These scenarios are relevant to Flash's long-term direction, but the async module is not part of the supported `v0.4.0` public surface.
 
 ## 🏗️ Async Architecture Overview
 
-Flash uses [zsync](https://github.com/kprotty/zsync) for structured concurrency:
+Flash now uses a Flash-owned internal async foundation for these exploratory patterns:
 
 ```zig
 const flash = @import("flash");
-const zsync = @import("zsync");
-
 pub fn main() !void {
     const cli = flash.CLI(.{
         .name = "async-example",
@@ -36,7 +33,8 @@ pub fn main() !void {
         },
     });
 
-    try cli.runAsync();
+    // Command-level async handlers are internal-only right now.
+    // Public applications still run through runWithInit(init).
 }
 ```
 
@@ -290,7 +288,7 @@ async fn resilientOperation(ctx: flash.Context) !void {
                 const delay = base_delay * (@as(u64, 1) << @intCast(retries));
                 std.debug.print("⏳ Retrying in {}ms... ({}/{})\n",
                     .{delay, retries, max_retries});
-                try zsync.sleep(delay * zsync.ns_per_ms);
+                std.time.sleep(delay * std.time.ns_per_ms);
             },
             .fail => return flash.Error.OperationFailed,
         }
@@ -304,23 +302,8 @@ async fn resilientOperation(ctx: flash.Context) !void {
 
 ### Testing Async Commands
 
-```zig
-test "async file processing" {
-    const allocator = std.testing.allocator;
-
-    var harness = flash.testing.AsyncTestHarness.init(allocator);
-    defer harness.deinit();
-
-    // Create test files
-    const temp_dir = try harness.createTempDir("async_test");
-    defer harness.cleanup(temp_dir);
-
-    try harness.createFile("file1.txt", "content 1");
-    try harness.createFile("file2.txt", "content 2");
-
-    // Test async command
-    const result = try harness.executeAsync(
-        processFilesAsync,
+Async testing helpers are not part of the supported public API in `v0.4.0`.
+If you are experimenting with internal async code, prefer local module-level tests instead of depending on a stable Flash test harness for async execution.
         &.{"file1.txt", "file2.txt"}
     );
 
@@ -388,13 +371,11 @@ async fn processItem(item: Item) !Result {
 
 ### 3. **Concurrency Control**
 ```zig
-// Use semaphores to limit concurrency
-var semaphore = zsync.Semaphore.init(max_concurrent_operations);
-defer semaphore.deinit();
+// Keep concurrency explicit in your application code today
+var async_ctx = flash.async_cli.AsyncContext.init(ctx.allocator);
+defer async_ctx.deinit();
 
-// Acquire before async operation
-try semaphore.acquire();
-defer semaphore.release();
+async_ctx.setMaxConcurrency(max_concurrent_operations);
 ```
 
 ### 4. **Progress Reporting**
@@ -411,9 +392,9 @@ if (total_items > 100) {
 
 - [API Reference: Async Operations](../api/async.md)
 - [Architecture: Async System](../architecture/async-system.md)
-- [Examples: File Processor](../examples/file-processor.md)
-- [Examples: API Client](../examples/api-client.md)
-- [Performance Optimization Guide](performance.md)
+- [Getting Started](getting-started.md)
+- [Declarative Config](declarative-config.md)
+- [Shell Completions](completions.md)
 
 ---
 

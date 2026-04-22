@@ -9,6 +9,36 @@ const Parser = @import("parser.zig");
 const Context = @import("context.zig");
 const Help = @import("help.zig");
 const Error = @import("error.zig");
+const Completion = @import("completion.zig");
+const Config = @import("config.zig");
+
+const Managed = std.array_list.Managed;
+
+const CaptureBuffers = struct {
+    stdout: std.Io.Writer.Allocating,
+    stderr: std.Io.Writer.Allocating,
+};
+
+fn nowNs() u64 {
+    return switch (@import("builtin").os.tag) {
+        .linux => blk: {
+            var ts: std.os.linux.timespec = undefined;
+            _ = std.os.linux.clock_gettime(.MONOTONIC, &ts);
+            break :blk @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
+        },
+        else => 0,
+    };
+}
+
+fn nowMs() i64 {
+    return @as(i64, @intCast(@divTrunc(nowNs(), std.time.ns_per_ms)));
+}
+
+fn trimTrailingNewlines(bytes: []const u8) []const u8 {
+    var end = bytes.len;
+    while (end > 0 and bytes[end - 1] == '\n') : (end -= 1) {}
+    return bytes[0..end];
+}
 
 /// Test result containing output and errors
 pub const TestResult = struct {
@@ -82,15 +112,15 @@ pub const TestResult = struct {
 /// CLI test harness for running commands with captured output
 pub const TestHarness = struct {
     allocator: std.mem.Allocator,
-    stdout_buffer: std.ArrayList(u8),
-    stderr_buffer: std.ArrayList(u8),
+    stdout_buffer: Managed(u8),
+    stderr_buffer: Managed(u8),
     env_vars: std.StringHashMap([]const u8),
 
     pub fn init(allocator: std.mem.Allocator) TestHarness {
         return .{
             .allocator = allocator,
-            .stdout_buffer = std.ArrayList(u8).init(allocator),
-            .stderr_buffer = std.ArrayList(u8).init(allocator),
+            .stdout_buffer = Managed(u8).init(allocator),
+            .stderr_buffer = Managed(u8).init(allocator),
             .env_vars = std.StringHashMap([]const u8).init(allocator),
         };
     }
@@ -116,11 +146,15 @@ pub const TestHarness = struct {
     pub fn execute(self: *TestHarness, cli: anytype, args: []const []const u8) !TestResult {
         self.clearBuffers();
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = nowNs();
         var exit_code: u8 = 0;
 
-        const stdout_writer = self.stdout_buffer.writer();
-        const stderr_writer = self.stderr_buffer.writer();
+        var capture = CaptureBuffers{
+            .stdout = .init(self.allocator),
+            .stderr = .init(self.allocator),
+        };
+        defer capture.stdout.deinit();
+        defer capture.stderr.deinit();
 
         // Get root command from CLI
         const root_command = cli.getRootCommand();
@@ -133,22 +167,22 @@ pub const TestHarness = struct {
                 Error.FlashError.HelpRequested => {
                     // Write help to stdout buffer
                     const program_name = if (args.len > 0) args[0] else root_command.name;
-                    try help.printCommandHelp(stdout_writer, root_command, program_name);
-                    return self.buildResult(0, start_time);
+                    try help.printCommandHelp(&capture.stdout.writer, root_command, program_name);
+                    return self.buildResult(0, start_time, &capture);
                 },
                 Error.FlashError.VersionRequested => {
                     // Write version to stdout buffer
                     const program_name = if (args.len > 0) args[0] else root_command.name;
-                    try stdout_writer.print("⚡ {s}", .{program_name});
+                    try capture.stdout.writer.print("⚡ {s}", .{program_name});
                     if (root_command.getVersion()) |version| {
-                        try stdout_writer.print(" {s}", .{version});
+                        try capture.stdout.writer.print(" {s}", .{version});
                     }
-                    try stdout_writer.print("\n", .{});
-                    return self.buildResult(0, start_time);
+                    try capture.stdout.writer.print("\n", .{});
+                    return self.buildResult(0, start_time, &capture);
                 },
                 else => {
-                    try stderr_writer.print("Error: {}\n", .{err});
-                    return self.buildResult(1, start_time);
+                    try capture.stderr.writer.print("Error: {}\n", .{err});
+                    return self.buildResult(1, start_time, &capture);
                 },
             }
         };
@@ -161,31 +195,36 @@ pub const TestHarness = struct {
             if (current_command.findSubcommand(segment)) |found_cmd| {
                 current_command = found_cmd;
             } else {
-                try stderr_writer.print("Unknown command: {s}\n", .{segment});
-                return self.buildResult(1, start_time);
+                try capture.stderr.writer.print("Unknown command: {s}\n", .{segment});
+                return self.buildResult(1, start_time, &capture);
             }
         }
 
         // Execute command
         if (current_command.hasHandler()) {
             current_command.execute(context) catch |err| {
-                try stderr_writer.print("Execution error: {}\n", .{err});
+                try capture.stderr.writer.print("Execution error: {}\n", .{err});
                 exit_code = 1;
             };
         }
 
-        return self.buildResult(exit_code, start_time);
+        return self.buildResult(exit_code, start_time, &capture);
     }
 
     /// Build a TestResult from current buffers and timing
-    fn buildResult(self: *TestHarness, exit_code: u8, start_time: i128) !TestResult {
-        const end_time = std.time.nanoTimestamp();
-        const execution_time: u64 = @intCast(@as(u128, @bitCast(end_time - start_time)));
+    fn buildResult(self: *TestHarness, exit_code: u8, start_time: u64, capture: *CaptureBuffers) !TestResult {
+        const end_time = nowNs();
+        const execution_time = end_time - start_time;
+
+        const stdout_bytes = try capture.stdout.toOwnedSlice();
+        defer self.allocator.free(stdout_bytes);
+        const stderr_bytes = try capture.stderr.toOwnedSlice();
+        defer self.allocator.free(stderr_bytes);
 
         return TestResult{
             .exit_code = exit_code,
-            .stdout = try self.allocator.dupe(u8, self.stdout_buffer.items),
-            .stderr = try self.allocator.dupe(u8, self.stderr_buffer.items),
+            .stdout = try self.allocator.dupe(u8, stdout_bytes),
+            .stderr = try self.allocator.dupe(u8, stderr_bytes),
             .execution_time = execution_time,
             .allocator = self.allocator,
         };
@@ -204,12 +243,14 @@ pub const SnapshotTester = struct {
     allocator: std.mem.Allocator,
     snapshot_dir: []const u8,
     update_snapshots: bool,
+    normalize_trailing_newlines: bool,
 
     pub fn init(allocator: std.mem.Allocator, snapshot_dir: []const u8, update: bool) SnapshotTester {
         return .{
             .allocator = allocator,
             .snapshot_dir = snapshot_dir,
             .update_snapshots = update,
+            .normalize_trailing_newlines = false,
         };
     }
 
@@ -219,29 +260,38 @@ pub const SnapshotTester = struct {
 
         if (self.update_snapshots) {
             // Write new snapshot
-            try std.fs.cwd().makePath(self.snapshot_dir);
-            try std.fs.cwd().writeFile(.{ .sub_path = snapshot_path, .data = output });
-            std.debug.print("Updated snapshot: {s}\\n", .{snapshot_path});
+            try std.Io.Dir.cwd().createDirPath(std.testing.io, self.snapshot_dir);
+
+            const file = try std.Io.Dir.cwd().createFile(std.testing.io, snapshot_path, .{});
+            defer file.close(std.testing.io);
+            try file.writeStreamingAll(std.testing.io, output);
             return;
         }
 
         // Compare with existing snapshot
-        const snapshot_content = std.fs.cwd().readFileAlloc(self.allocator, snapshot_path, 1024 * 1024) catch |err| {
-            switch (err) {
+        const snapshot_content = blk: {
+            const file = std.Io.Dir.cwd().openFile(std.testing.io, snapshot_path, .{}) catch |err| switch (err) {
                 error.FileNotFound => {
                     std.debug.print("Snapshot not found: {s}\\n", .{snapshot_path});
-                    std.debug.print("Run with --update-snapshots to create it\\n");
+                    std.debug.print("Run with --update-snapshots to create it\\n", .{});
                     return error.SnapshotNotFound;
                 },
                 else => return err,
-            }
+            };
+            defer file.close(std.testing.io);
+
+            var reader = file.reader(std.testing.io, &.{});
+            break :blk try reader.interface.allocRemaining(self.allocator, .limited(1024 * 1024));
         };
         defer self.allocator.free(snapshot_content);
 
-        if (!std.mem.eql(u8, output, snapshot_content)) {
+        const normalized_output = if (self.normalize_trailing_newlines) trimTrailingNewlines(output) else output;
+        const normalized_snapshot = if (self.normalize_trailing_newlines) trimTrailingNewlines(snapshot_content) else snapshot_content;
+
+        if (!std.mem.eql(u8, normalized_output, normalized_snapshot)) {
             std.debug.print("Snapshot mismatch for: {s}\\n", .{name});
-            std.debug.print("Expected:\\n{s}\\n", .{snapshot_content});
-            std.debug.print("Actual:\\n{s}\\n", .{output});
+            std.debug.print("Expected:\\n{s}\\n", .{normalized_snapshot});
+            std.debug.print("Actual:\\n{s}\\n", .{normalized_output});
             return error.SnapshotMismatch;
         }
     }
@@ -250,7 +300,7 @@ pub const SnapshotTester = struct {
         var harness = TestHarness.init(self.allocator);
         defer harness.deinit();
 
-        var args = std.ArrayList([]const u8).init(self.allocator);
+        var args = Managed([]const u8).init(self.allocator);
         defer args.deinit();
 
         try args.appendSlice(command_path);
@@ -284,25 +334,25 @@ pub const PerformanceTester = struct {
         memory_used: usize,
 
         pub fn print(self: BenchmarkResult) void {
-            std.debug.print("Benchmark: {s}\\n", .{self.name});
-            std.debug.print("  Iterations: {d}\\n", .{self.iterations});
-            std.debug.print("  Total time: {d}ms\\n", .{self.total_time_ns / 1_000_000});
-            std.debug.print("  Average: {d}μs\\n", .{self.avg_time_ns / 1_000});
-            std.debug.print("  Min: {d}μs\\n", .{self.min_time_ns / 1_000});
-            std.debug.print("  Max: {d}μs\\n", .{self.max_time_ns / 1_000});
-            std.debug.print("  Memory: {d} bytes\\n", .{self.memory_used});
+            std.log.info("Benchmark: {s}", .{self.name});
+            std.log.info("  Iterations: {d}", .{self.iterations});
+            std.log.info("  Total time: {d}ms", .{self.total_time_ns / 1_000_000});
+            std.log.info("  Average: {d}us", .{self.avg_time_ns / 1_000});
+            std.log.info("  Min: {d}us", .{self.min_time_ns / 1_000});
+            std.log.info("  Max: {d}us", .{self.max_time_ns / 1_000});
+            std.log.info("  Memory: {d} bytes", .{self.memory_used});
         }
     };
 
     pub fn init(allocator: std.mem.Allocator) PerformanceTester {
         return .{
             .allocator = allocator,
-            .results = std.ArrayList(BenchmarkResult).init(allocator),
+            .results = .empty,
         };
     }
 
     pub fn deinit(self: *PerformanceTester) void {
-        self.results.deinit();
+        self.results.deinit(self.allocator);
     }
 
     pub fn benchmark(self: *PerformanceTester, name: []const u8, cli: anytype, args: []const []const u8, iterations: usize) !BenchmarkResult {
@@ -338,16 +388,14 @@ pub const PerformanceTester = struct {
             .memory_used = 0, // Would need to implement memory tracking
         };
 
-        try self.results.append(benchmark_result);
+        try self.results.append(self.allocator, benchmark_result);
         return benchmark_result;
     }
 
     pub fn printAllResults(self: PerformanceTester) void {
-        std.debug.print("\\n⚡ Performance Test Results\\n");
-        std.debug.print("==========================\\n");
+        std.log.info("Performance Test Results", .{});
         for (self.results.items) |result| {
             result.print();
-            std.debug.print("\\n");
         }
     }
 };
@@ -400,40 +448,29 @@ pub const IntegrationTester = struct {
     pub fn init(allocator: std.mem.Allocator) IntegrationTester {
         return .{
             .allocator = allocator,
-            .test_cases = std.ArrayList(TestCase).init(allocator),
+            .test_cases = .empty,
         };
     }
 
     pub fn deinit(self: *IntegrationTester) void {
-        self.test_cases.deinit();
+        self.test_cases.deinit(self.allocator);
     }
 
     pub fn addTestCase(self: *IntegrationTester, test_case: TestCase) !void {
-        try self.test_cases.append(test_case);
+        try self.test_cases.append(self.allocator, test_case);
     }
 
     pub fn runAll(self: IntegrationTester, cli: anytype) !void {
-        var passed: usize = 0;
         var failed: usize = 0;
 
-        std.debug.print("\\n⚡ Running Integration Tests\\n");
-        std.debug.print("============================\\n");
-
         for (self.test_cases.items) |test_case| {
-            std.debug.print("Running: {s}... ", .{test_case.name});
-
             const result = test_case.run(self.allocator, cli) catch |err| {
-                std.debug.print("FAILED ({})\\n", .{err});
                 failed += 1;
+                std.log.err("Integration test failed: {s} ({})", .{ test_case.name, err });
                 continue;
             };
             defer result.deinit();
-
-            std.debug.print("PASSED\\n");
-            passed += 1;
         }
-
-        std.debug.print("\\nResults: {d} passed, {d} failed\\n", .{ passed, failed });
 
         if (failed > 0) {
             return error.TestsFailed;
@@ -445,10 +482,10 @@ pub const IntegrationTester = struct {
 pub const TestUtils = struct {
     /// Create a temporary directory for test files
     pub fn createTempDir(allocator: std.mem.Allocator, prefix: []const u8) ![]const u8 {
-        const timestamp = std.time.milliTimestamp();
-        const dir_name = try std.fmt.allocPrint(allocator, "/tmp/{s}_{d}", .{ prefix, timestamp });
+        const timestamp = nowMs();
+        const dir_name = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}_{d}", .{ prefix, timestamp });
 
-        try std.fs.cwd().makePath(dir_name);
+        try std.Io.Dir.cwd().createDirPath(std.testing.io, dir_name);
         return dir_name;
     }
 
@@ -457,14 +494,15 @@ pub const TestUtils = struct {
         const file_path = try std.fmt.allocPrint(std.heap.page_allocator, "{s}/{s}", .{ dir, name });
         defer std.heap.page_allocator.free(file_path);
 
-        try std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = content });
+        const file = try std.Io.Dir.cwd().createFile(std.testing.io, file_path, .{});
+        defer file.close(std.testing.io);
+        try file.writeAll(std.testing.io, content);
     }
 
     /// Cleanup temporary directory
     pub fn cleanup(path: []const u8) void {
-        std.fs.cwd().deleteTree(path) catch {
-            std.debug.print("Warning: Failed to cleanup {s}\\n", .{path});
-        };
+        var cwd = std.Io.Dir.cwd();
+        cwd.deleteTree(std.testing.io, path) catch {};
     }
 
     /// Mock CLI for testing - provides minimal CLI interface for test harness
@@ -533,8 +571,10 @@ test "test harness help request" {
 
 test "snapshot tester" {
     const allocator = std.testing.allocator;
-    const snapshot_dir = try TestUtils.createTempDir(allocator, "flash_test");
-    defer TestUtils.cleanup(snapshot_dir);
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const snapshot_dir = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/snapshots", .{tmp.sub_path});
     defer allocator.free(snapshot_dir);
 
     var tester = SnapshotTester.init(allocator, snapshot_dir, true);
@@ -544,7 +584,104 @@ test "snapshot tester" {
 
     // Test reading back the snapshot
     tester.update_snapshots = false;
+    tester.normalize_trailing_newlines = true;
     try tester.assertMatchesSnapshot("test_command", test_output);
+}
+
+test "golden snapshot: help output" {
+    const allocator = std.testing.allocator;
+    const snapshot_dir = "tests/snapshots";
+
+    const root = Command.Command.init("snapapp", (Command.CommandConfig{})
+        .withAbout("Snapshot application")
+        .withVersion("0.4.0")
+        .withArgs(&.{@import("argument.zig").Argument.init("format", (@import("argument.zig").ArgumentConfig{})
+            .withHelp("Output format")
+            .withChoices(&.{ "json", "toml" }))})
+        .withFlags(&.{@import("flag.zig").Flag.init("verbose", (@import("flag.zig").FlagConfig{})
+            .withShort('v')
+            .withLong("verbose")
+            .withHelp("Enable verbose output"))})
+        .withSubcommands(&.{Command.Command.init("serve", (Command.CommandConfig{})
+        .withAbout("Run the server"))}));
+
+    const cli = TestUtils.MockCLI.initWithCommand("snapapp", root);
+    var tester = SnapshotTester.init(allocator, snapshot_dir, false);
+    tester.normalize_trailing_newlines = true;
+    try tester.assertHelpSnapshot(cli, &.{"snapapp"});
+}
+
+test "golden snapshot: bash completion" {
+    const allocator = std.testing.allocator;
+    const snapshot_dir = "tests/snapshots";
+
+    const command = Command.Command.init("snapapp", (Command.CommandConfig{})
+        .withAbout("Snapshot application")
+        .withFlags(&.{@import("flag.zig").Flag.init("verbose", (@import("flag.zig").FlagConfig{})
+            .withShort('v')
+            .withLong("verbose")
+            .withHelp("Enable verbose output"))})
+        .withSubcommands(&.{Command.Command.init("serve", (Command.CommandConfig{})
+        .withAbout("Run the server"))}));
+
+    var generator = Completion.CompletionGenerator.init(allocator);
+    defer generator.deinit();
+
+    const script = try generator.generate(command, .bash, "snapapp");
+    defer allocator.free(script);
+
+    var tester = SnapshotTester.init(allocator, snapshot_dir, false);
+    tester.normalize_trailing_newlines = true;
+    try tester.assertMatchesSnapshot("snapapp_bash_completion", script);
+}
+
+test "golden snapshot: zsh completion" {
+    const allocator = std.testing.allocator;
+    const snapshot_dir = "tests/snapshots";
+
+    const command = Command.Command.init("snapapp", (Command.CommandConfig{})
+        .withAbout("Snapshot application")
+        .withSubcommands(&.{Command.Command.init("serve", (Command.CommandConfig{})
+        .withAbout("Run the server"))}));
+
+    var generator = Completion.CompletionGenerator.init(allocator);
+    defer generator.deinit();
+
+    const script = try generator.generate(command, .zsh, "snapapp");
+    defer allocator.free(script);
+
+    var tester = SnapshotTester.init(allocator, snapshot_dir, false);
+    tester.normalize_trailing_newlines = true;
+    try tester.assertMatchesSnapshot("snapapp_zsh_completion", script);
+}
+
+test "golden snapshot: toml diagnostics" {
+    const allocator = std.testing.allocator;
+    const snapshot_dir = "tests/snapshots";
+
+    const ExampleConfig = struct {
+        name: []const u8 = "default",
+    };
+
+    const parser = Config.ConfigParser.init(allocator);
+    const result = parser.parseTomlWithDiagnostics(ExampleConfig,
+        \\name = "unterminated
+    );
+
+    const output = switch (result) {
+        .success => return error.TestUnexpectedResult,
+        .failure => |diag| try std.fmt.allocPrint(allocator, "line={d}\ncolumn={d}\nmessage={s}\nsuggestion={?s}\n", .{
+            diag.line,
+            diag.column,
+            diag.message,
+            diag.suggestion,
+        }),
+    };
+    defer allocator.free(output);
+
+    var tester = SnapshotTester.init(allocator, snapshot_dir, false);
+    tester.normalize_trailing_newlines = true;
+    try tester.assertMatchesSnapshot("toml_diagnostics", output);
 }
 
 test "performance tester" {

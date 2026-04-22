@@ -2,7 +2,7 @@
 
 ## Development Setup
 
-This project currently targets Zig `0.16.0-dev`.
+This project currently targets Zig `0.17.0-dev`.
 
 Recommended baseline:
 

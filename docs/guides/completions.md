@@ -1,6 +1,14 @@
 # Shell Completions Guide
 
-Flash provides comprehensive shell completion support for multiple shells including Bash, Zsh, Fish, PowerShell, NuShell, and GShell (gsh).
+Flash provides shell completion support for Bash, Zsh, Fish, PowerShell, NuShell, and GShell (`gsh`).
+
+Current backend maturity:
+
+- Bash: strongest backend today, including dynamic `__complete` support, inherited global flags, custom value completers, and file/directory directives.
+- Zsh: strongest generated-script backend, including recursive command trees, inherited global flags, and metadata-aware option-value specs.
+- Fish: recursive/shared-scope generation with option-value suggestions from choices and static completers.
+- PowerShell/NuShell: recursive command-tree generation, but less feature-rich than Bash/Zsh today.
+- GShell: generated experimental target only.
 
 ## Supported Shells
 
@@ -9,7 +17,7 @@ Flash provides comprehensive shell completion support for multiple shells includ
 - **Fish** - Friendly Interactive Shell
 - **PowerShell** - Microsoft PowerShell
 - **NuShell** - Modern structured shell
-- **GShell (gsh)** - Zig-native shell with flare config integration
+- **GShell (gsh)** - Experimental Zig-native shell target
 
 ## Generating Completions
 
@@ -91,9 +99,15 @@ pub fn generateCompletions(allocator: std.mem.Allocator) !void {
 }
 ```
 
+## Practical Guidance
+
+- Prefer Bash or Zsh if you want Flash's most complete completion experience today.
+- Fish is strong and recursive, but Bash/Zsh still get the deepest completion-specific polish.
+- PowerShell and NuShell now generate recursive command trees, but their completion surface is still simpler than Bash/Zsh.
+
 ## Custom Completions
 
-Flash supports custom completion functions for dynamic values:
+Flash supports custom completion configuration for dynamic values:
 
 ```zig
 const config = flash.Completion.CompletionConfig{
@@ -103,9 +117,29 @@ const config = flash.Completion.CompletionConfig{
 try generator.addCustomCompleter("environment", config);
 ```
 
-## GShell Integration
+Supported today:
 
-GShell completions use a declarative Zig-style syntax that integrates with flare configuration:
+- `static_values` are used by generated Bash/Zsh/Fish completion flows.
+- `completion_fn` is used by the dynamic Bash `__complete` path.
+- `async_completion_fn` is executed by the dynamic Bash `__complete` path.
+- `file_extensions`, `directory_only`, and `no_file_completion` influence Bash dynamic behavior and generated Zsh/Fish value specs.
+
+Example custom completer configuration:
+
+```zig
+try generator.addCustomCompleter("format", .{
+    .static_values = &.{ "json", "yaml", "toml" },
+});
+
+try generator.addCustomCompleter("env", .{
+    .completion_fn = completeEnvironment,
+    .no_file_completion = true,
+});
+```
+
+## GShell Notes
+
+GShell output is still experimental. Treat it as generated text that may change shape rather than a stable integration contract.
 
 ```zig
 completion myapp {
@@ -128,7 +162,7 @@ completion myapp {
 }
 ```
 
-This format is automatically generated when you run `myapp completion gsh`.
+This is the current generated shape when you run `myapp completion gsh`.
 
 ## Testing Completions
 
@@ -148,13 +182,13 @@ myapp <TAB>
 
 ## Features
 
-All Flash completion scripts support:
+Backend feature summary:
 
-- ✅ Subcommand completion
-- ✅ Flag completion (short and long forms)
-- ✅ Flag descriptions
-- ✅ Dynamic completion (via `__complete` command)
-- ✅ File path completion
-- ✅ Custom value completion
+- ✅ Recursive command trees: Bash, Zsh, Fish, PowerShell, NuShell
+- ✅ Inherited global flags: Bash, Zsh, Fish, PowerShell, NuShell
+- ✅ Dynamic `__complete`: Bash
+- ✅ Choice/static value suggestions: Bash, Zsh, Fish
+- ✅ File/directory directive shaping: Bash dynamic, generated Zsh/Fish value specs
+- ⚠️ Async completers: API only, not executed yet
 
 ⚡ Built with Zig

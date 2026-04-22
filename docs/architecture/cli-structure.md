@@ -4,10 +4,10 @@ Flash is designed with a modular, composable architecture that prioritizes perfo
 
 ## 🎯 Design Principles
 
-### 1. **Async-First**
-- All operations designed for concurrency
-- Non-blocking I/O by default
-- Structured concurrency with zsync
+### 1. **Async-Capable Internals**
+- Internal async foundations support future concurrency work
+- Public API remains sync-first today
+- Completion, config, and command execution stay simple by default
 
 ### 2. **Zero-Cost Abstractions**
 - Compile-time code generation
@@ -81,11 +81,8 @@ context.setCommand(validated.command);
 
 ### 3. **Command Execution**
 ```zig
-// Execute command (sync or async)
-const result = switch (command.handler_type) {
-    .sync => command.run(context),
-    .async => try command.run_async(context),
-};
+// Execute the registered handler for the resolved command.
+try command.execute(context);
 ```
 
 ## 🎪 Command Architecture
@@ -102,11 +99,11 @@ const RootCommand = flash.CLI(.{
             .commands = &.{
                 flash.cmd("frontend", .{
                     .about = "Deploy frontend app",
-                    .run_async = deployFrontend,
+                    .run = deployFrontend,
                 }),
                 flash.cmd("backend", .{
                     .about = "Deploy backend service",
-                    .run_async = deployBackend,
+                    .run = deployBackend,
                 }),
             },
         }),
@@ -151,7 +148,7 @@ graph LR
     B --> F[flag.zig]
     B --> G[validation.zig]
 
-    H[async_cli.zig] --> I[zsync]
+    H[async_cli.zig] --> I[flash async foundation]
     H --> B
 
     J[completion.zig] --> B
@@ -160,7 +157,7 @@ graph LR
 ```
 
 ### Core Dependencies
-- **zsync**: Async runtime and structured concurrency
+- **Flash internal async foundation**: Internal async-shaped helpers and experiments
 - **std**: Zig standard library
 - **No external C dependencies**
 
@@ -276,25 +273,18 @@ pub const ExecutionModel = enum {
 ### Async Command Handlers
 
 ```zig
-// Async command with structured concurrency
+// Internal async-oriented command pattern
 async fn processFiles(ctx: flash.Context) !void {
     const files = ctx.getMany("files").?;
 
-    // Process files concurrently with bounded parallelism
-    var semaphore = zsync.Semaphore.init(ctx.get("concurrency") orelse 4);
-    defer semaphore.deinit();
+    // Process files through Flash's internal async file helpers
+    var file_ops = flash.async_cli.AsyncFileOps.init(ctx.allocator);
+    defer file_ops.deinit();
 
-    var tasks = std.ArrayList(zsync.Task(ProcessResult)).init(ctx.allocator);
-    defer tasks.deinit();
+    const results = try file_ops.readFiles(files);
+    defer ctx.allocator.free(results);
 
-    for (files) |file| {
-        const task = try zsync.spawn(processFile, .{file, &semaphore});
-        try tasks.append(task);
-    }
-
-    // Wait for all tasks to complete
-    for (tasks.items) |task| {
-        const result = try task.await();
+    for (results) |result| {
         handleResult(result);
     }
 }
@@ -435,7 +425,7 @@ test "argument parsing" {
 
 // Integration tests for command execution
 test "command integration" {
-    var harness = flash.testing.TestHarness.init(allocator);
+    var harness = flash.Testing.TestHarness.init(allocator);
     defer harness.deinit();
 
     const result = try harness.execute(myApp, &.{"command", "arg"});
@@ -444,10 +434,8 @@ test "command integration" {
 
 // Performance tests
 test "performance benchmarks" {
-    var benchmark = flash.benchmark.BenchmarkRunner.init(allocator, .{});
-    defer benchmark.deinit();
-
-    _ = try benchmark.benchmark("command_execution", executeCommand, .{});
+    // Benchmark helpers are internal-only in v0.4.0.
+    try executeCommand();
 }
 ```
 

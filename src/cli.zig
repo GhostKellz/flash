@@ -4,7 +4,10 @@
 //! the main interface for building and running CLI applications.
 
 const std = @import("std");
+const Argument = @import("argument.zig");
 const Command = @import("command.zig");
+const Completion = @import("completion.zig");
+const Flag = @import("flag.zig");
 const Parser = @import("parser.zig");
 const Context = @import("context.zig");
 const Help = @import("help.zig");
@@ -102,17 +105,20 @@ pub fn CLI(comptime config: CLIConfig) type {
                 .help = Help.Help.init(allocator),
             };
         }
-        
+
         /// Run the CLI with the given arguments
         pub fn runWithArgs(self: *Self, args: []const []const u8) !void {
             self.parseAndExecute(args) catch |err| {
                 // Use debug print for errors
                 const use_stderr = true;
                 _ = use_stderr;
-                
+
                 switch (err) {
                     Error.FlashError.HelpRequested => {
-                        self.help.printHelp(self.root_command, config.name);
+                        const help_command = self.resolveHelpCommand(args);
+                        const help_name = self.resolveHelpCommandName(args) catch self.allocator.dupe(u8, config.name) catch return err;
+                        defer self.allocator.free(help_name);
+                        self.printScopedHelp(help_command, self.commandPathFor(help_command), help_name);
                         return;
                     },
                     Error.FlashError.VersionRequested => {
@@ -127,7 +133,7 @@ pub fn CLI(comptime config: CLIConfig) type {
             };
         }
 
-        /// Run the CLI with process Init (Zig 0.16.0+ style)
+        /// Run the CLI with process Init (Zig 0.17.0-dev style)
         pub fn runWithInit(self: *Self, process_init: std.process.Init) !void {
             // Collect args from iterator into a slice
             var args_list: std.ArrayList([]const u8) = .empty;
@@ -139,13 +145,6 @@ pub fn CLI(comptime config: CLIConfig) type {
             }
 
             try self.runWithArgs(args_list.items);
-        }
-
-        /// Run the CLI with process arguments (deprecated - use runWithInit for Zig 0.16.0+)
-        pub fn run(_: *Self) !void {
-            // This method requires the new main signature with std.process.Init
-            // For Zig 0.16.0+, use runWithInit() instead
-            @compileError("CLI.run() is deprecated in Zig 0.16.0+. Use runWithInit(init) with the new main signature: pub fn main(init: std.process.Init) !void");
         }
 
         /// Parse arguments and execute the appropriate command
@@ -165,11 +164,28 @@ pub fn CLI(comptime config: CLIConfig) type {
             }
 
             // Execute the command
-            if (current_command.hasHandler()) {
+            if (command_path.len == 1 and std.mem.eql(u8, command_path[0], "completion")) {
+                var generator = Completion.CompletionGenerator.init(self.allocator);
+                defer generator.deinit();
+                generator.handleCompletionCommand(context, self.root_command, config.name) catch |err| switch (err) {
+                    error.MissingShell => return Error.FlashError.MissingRequiredArgument,
+                    error.InvalidShell => return Error.FlashError.InvalidInput,
+                    else => return Error.FlashError.IOError,
+                };
+            } else if (command_path.len == 1 and std.mem.eql(u8, command_path[0], "__complete")) {
+                var generator = Completion.CompletionGenerator.init(self.allocator);
+                defer generator.deinit();
+                generator.handleDynamicCompletion(args, self.root_command) catch |err| switch (err) {
+                    error.InvalidShell => return Error.FlashError.InvalidInput,
+                    else => return Error.FlashError.IOError,
+                };
+            } else if (current_command.hasHandler()) {
                 try current_command.execute(context);
             } else if (current_command.hasSubcommands()) {
                 // No handler but has subcommands - show help
-                self.help.printHelp(current_command, config.name);
+                const command_name = self.commandDisplayName(command_path, current_command) catch self.allocator.dupe(u8, config.name) catch return Error.FlashError.OutOfMemory;
+                defer self.allocator.free(command_name);
+                self.printScopedHelp(current_command, command_path, command_name);
             } else {
                 // No handler and no subcommands - this shouldn't happen
                 return Error.FlashError.MissingSubcommand;
@@ -179,24 +195,120 @@ pub fn CLI(comptime config: CLIConfig) type {
         /// Find a command by walking the full command path (supports nested subcommands)
         fn findCommandByPath(self: *Self, root: Command.Command, path: []const []const u8) ?Command.Command {
             _ = self;
-
-            if (path.len == 0) return root;
-
-            var current = root;
-            for (path) |segment| {
-                if (current.findSubcommand(segment)) |subcmd| {
-                    current = subcmd;
-                } else {
-                    return null;
-                }
-            }
-            return current;
+            return Command.Command.findCommandByPath(root, path);
         }
 
         /// Find a command by single name (backwards compatible)
         fn findCommand(self: *Self, root: Command.Command, name: []const u8) ?Command.Command {
             _ = self;
             return root.findSubcommand(name);
+        }
+
+        fn resolveHelpCommand(self: *Self, args: []const []const u8) Command.Command {
+            var current = self.root_command;
+            if (args.len <= 1) return current;
+
+            var help_mode = false;
+            for (args[1..]) |arg| {
+                if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+                    break;
+                }
+                if (std.mem.eql(u8, arg, "help")) {
+                    help_mode = true;
+                    continue;
+                }
+                if (std.mem.startsWith(u8, arg, "-")) {
+                    if (!help_mode) break;
+                    continue;
+                }
+                if (current.findSubcommand(arg)) |subcmd| {
+                    current = subcmd;
+                    continue;
+                }
+                if (!help_mode) break;
+            }
+
+            return current;
+        }
+
+        fn resolveHelpCommandName(self: *Self, args: []const []const u8) ![]u8 {
+            var current = self.root_command;
+            if (args.len <= 1) return self.allocator.dupe(u8, current.name);
+
+            var help_mode = false;
+            var last_index: usize = 0;
+            for (args[1..], 1..) |arg, index| {
+                if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+                    break;
+                }
+                if (std.mem.eql(u8, arg, "help")) {
+                    help_mode = true;
+                    continue;
+                }
+                if (std.mem.startsWith(u8, arg, "-")) {
+                    if (!help_mode) break;
+                    continue;
+                }
+                if (current.findSubcommand(arg)) |subcmd| {
+                    current = subcmd;
+                    last_index = index;
+                    continue;
+                }
+                if (!help_mode) break;
+            }
+
+            if (last_index == 0) return self.allocator.dupe(u8, self.root_command.name);
+            return std.mem.join(self.allocator, " ", args[0 .. last_index + 1]);
+        }
+
+        fn commandDisplayName(self: *Self, command_path: []const []const u8, current_command: Command.Command) ![]u8 {
+            _ = current_command;
+            if (command_path.len == 0) return self.allocator.dupe(u8, config.name);
+
+            var joined = std.ArrayList([]const u8).empty;
+            defer joined.deinit(self.allocator);
+
+            try joined.append(self.allocator, config.name);
+            for (command_path) |segment| {
+                try joined.append(self.allocator, segment);
+            }
+
+            return std.mem.join(self.allocator, " ", joined.items);
+        }
+
+        fn commandPathFor(self: *Self, command: Command.Command) []const []const u8 {
+            if (std.mem.eql(u8, command.name, self.root_command.name)) return &.{};
+            return self.findPathToCommand(self.root_command, command) orelse &.{command.name};
+        }
+
+        fn findPathToCommand(self: *Self, current: Command.Command, target: Command.Command) ?[]const []const u8 {
+            for (current.getSubcommands()) |subcmd| {
+                if (std.mem.eql(u8, subcmd.name, target.name)) {
+                    return &.{subcmd.name};
+                }
+                if (self.findPathToCommand(subcmd, target)) |tail| {
+                    if (tail.len == 0) return &.{subcmd.name};
+
+                    var joined = std.ArrayList([]const u8).empty;
+                    joined.append(self.allocator, subcmd.name) catch return null;
+                    for (tail) |segment| joined.append(self.allocator, segment) catch return null;
+                    return joined.toOwnedSlice(self.allocator) catch null;
+                }
+            }
+            return null;
+        }
+
+        fn printScopedHelp(self: *Self, command: Command.Command, command_path: []const []const u8, display_name: []const u8) void {
+            const merged = Command.Command.collectScopedFlags(self.root_command, command_path, self.allocator) catch {
+                self.help.printHelp(command, display_name);
+                return;
+            };
+            defer self.allocator.free(merged);
+
+            var scoped_config = command.config;
+            scoped_config.flags = merged;
+            const scoped_command = Command.Command.init(command.name, scoped_config);
+            self.help.printHelp(scoped_command, display_name);
         }
 
         /// Get the root command (for testing/inspection)
@@ -283,4 +395,101 @@ test "CLI with subcommands" {
     try cli.runWithArgs(&args);
 
     try std.testing.expectEqual(true, TestState.start_executed);
+}
+
+test "CLI resolves subcommand help target" {
+    const allocator = std.testing.allocator;
+
+    const TestCLI = CLI(.{
+        .name = "service",
+        .version = "1.0.0",
+    });
+
+    var cli = TestCLI.init(allocator, (Command.CommandConfig{})
+        .withSubcommands(&.{Command.Command.init("start", (Command.CommandConfig{})
+        .withAbout("Start the service")
+        .withArgs(&.{Argument.Argument.init("config", (Argument.ArgumentConfig{})
+        .withHelp("Config file")
+        .withLong("config"))}))}));
+
+    const args = [_][]const u8{ "service", "start", "--help" };
+
+    const result = cli.parser.parse(cli.root_command, &args);
+    try std.testing.expectError(Error.FlashError.HelpRequested, result);
+
+    const current_command = cli.resolveHelpCommand(&args);
+
+    try std.testing.expectEqualStrings("start", current_command.name);
+    try std.testing.expectEqualStrings("Start the service", current_command.getAbout().?);
+}
+
+test "CLI parser recognizes builtin completion command" {
+    const allocator = std.testing.allocator;
+
+    const TestCLI = CLI(.{
+        .name = "flash",
+        .version = "1.0.0",
+    });
+
+    var cli = TestCLI.init(allocator, Command.CommandConfig{});
+
+    const args = [_][]const u8{ "flash", "completion", "bash" };
+    var context = try cli.parser.parse(cli.root_command, &args);
+    defer context.deinit();
+
+    try std.testing.expectEqualStrings("completion", context.getSubcommand().?);
+    try std.testing.expectEqualStrings("bash", context.getPositional(0).?.asString());
+}
+
+test "CLI command display name includes nested path" {
+    const allocator = std.testing.allocator;
+
+    const TestCLI = CLI(.{
+        .name = "flash",
+        .version = "1.0.0",
+    });
+
+    var cli = TestCLI.init(allocator, (Command.CommandConfig{})
+        .withSubcommands(&.{Command.Command.init("serve", (Command.CommandConfig{})
+        .withSubcommands(&.{Command.Command.init("http", Command.CommandConfig{})}))}));
+
+    const display = try cli.commandDisplayName(&.{ "serve", "http" }, cli.root_command);
+    defer allocator.free(display);
+    try std.testing.expect(std.mem.startsWith(u8, display, "flash serve http"));
+}
+
+test "CLI scoped help includes inherited global flags" {
+    const allocator = std.testing.allocator;
+
+    const TestCLI = CLI(.{
+        .name = "flash",
+        .version = "1.0.0",
+    });
+
+    var cli = TestCLI.init(allocator, (Command.CommandConfig{})
+        .withFlags(&.{Flag.Flag.init("verbose", (Flag.FlagConfig{})
+            .withLong("verbose")
+            .withHelp("Verbose output")
+            .setGlobal())})
+        .withSubcommands(&.{Command.Command.init("serve", (Command.CommandConfig{})
+        .withAbout("Serve files"))}));
+
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+
+    const command_name = try cli.commandDisplayName(&.{"serve"}, cli.root_command);
+    defer allocator.free(command_name);
+
+    const merged = try Command.Command.collectScopedFlags(cli.root_command, &.{"serve"}, allocator);
+    defer allocator.free(merged);
+
+    var scoped_config = cli.root_command.findSubcommand("serve").?.config;
+    scoped_config.flags = merged;
+    const scoped_command = Command.Command.init("serve", scoped_config);
+
+    try cli.help.printCommandHelp(&aw.writer, scoped_command, command_name);
+
+    const output = aw.written();
+    try std.testing.expect(std.mem.indexOf(u8, output, "flash serve") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "--verbose") != null);
 }

@@ -16,10 +16,9 @@ const MyArgs = struct {
 };
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+    const allocator = std.heap.smp_allocator;
 
-    const args = try flash.parse(MyArgs, allocator);
+    const args = try flash.Declarative.parseWithArgs(MyArgs, allocator, &.{ "myapp", "alice", "--verbose" }, .{});
     std.debug.print("Name: {s}, Count: {d}, Verbose: {}\n", .{
         args.name, args.count, args.verbose
     });
@@ -117,10 +116,10 @@ pub const email_config = FieldConfig{
 
 ## Parsing with Config
 
-Use `parseWithConfig` for additional options:
+Use `flash.Declarative.parseWithArgs(...)` with explicit argv plus config:
 
 ```zig
-const args = try flash.parseWithConfig(MyArgs, allocator, .{
+const args = try flash.Declarative.parseWithArgs(MyArgs, allocator, argv, .{
     .name = "myapp",
     .about = "My application",
     .version = "1.0.0",
@@ -139,6 +138,7 @@ std.debug.print("{s}", .{help_text});
 
 ## Limitations
 
+- `flash.parse(...)` and `flash.parseWithConfig(...)` are not exported convenience helpers in `v0.4.0`; use `flash.Declarative.parseWithArgs(...)` explicitly
 - Default values use struct field defaults, not `FieldConfig.default`
 - For environment variable support, use `env.zig` directly with your parsed struct
 

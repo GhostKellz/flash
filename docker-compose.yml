@@ -14,7 +14,7 @@ services:
       # Mount project source
       - .:/workspace:rw
       # Mount host Zig installation (read-only)
-      - /opt/zig-0.16.0-dev:/opt/zig:ro
+      - /opt/zig-dev:/opt/zig:ro
     working_dir: /workspace
     stdin_open: true
     tty: true

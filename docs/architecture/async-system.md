@@ -1,6 +1,6 @@
 # ⚡ Flash Async System Architecture
 
-Flash's async system is built on top of [zsync](https://github.com/kprotty/zsync), providing structured concurrency and high-performance async operations. This document details the async architecture and design decisions.
+Flash's async system now uses a Flash-owned internal foundation. This document describes the internal direction and design goals rather than a stable public runtime contract.
 
 ## 🎯 Design Goals
 
@@ -23,7 +23,7 @@ graph TD
     D --> G[Stackless Coroutines]
     D --> H[Blocking Operations]
 
-    E --> I[zsync Executor]
+    E --> I[Flash Async Foundation]
     F --> I
     G --> I
     H --> I
@@ -98,8 +98,8 @@ fn simpleCommand(ctx: flash.Context) !void {
 ```zig
 pub const AsyncContext = struct {
     allocator: std.mem.Allocator,
-    executor: zsync.Executor,
-    futures: std.ArrayList(zsync.Future),
+    results: std.ArrayList(AsyncResult),
+    pending_operations: usize,
     results: std.ArrayList(AsyncResult),
 
     // Configuration
@@ -108,7 +108,7 @@ pub const AsyncContext = struct {
     memory_limit: ?usize = null,
 
     // Cancellation support
-    cancellation_token: zsync.CancellationToken,
+    cancellation_token: CancellationToken,
 
     // Resource tracking
     resource_tracker: ResourceTracker,
@@ -141,39 +141,14 @@ const ResourceTracker = struct {
 ### 1. **Work Stealing**
 
 ```zig
-// zsync's work-stealing scheduler
-const WorkStealingExecutor = struct {
+// Flash's owned future runtime can grow into work-stealing later without
+// changing command/completion/validation call sites.
+const WorkStealingSketch = struct {
     threads: []Thread,
-    work_queues: []WorkQueue,
-    steal_attempts: std.atomic.Atomic(u64),
+    steal_attempts: std.atomic.Value(u64),
 
-    pub fn spawn(self: *WorkStealingExecutor, func: anytype, args: anytype) !zsync.Future {
-        const task = Task.create(func, args);
-
-        // Try local queue first
-        if (self.getCurrentQueue().tryPush(task)) {
-            return task.future;
-        }
-
-        // Find least loaded queue
-        const target_queue = self.findLeastLoadedQueue();
-        try target_queue.push(task);
-
-        return task.future;
-    }
-
-    fn stealWork(self: *WorkStealingExecutor, thief_id: usize) ?Task {
-        // Work stealing algorithm
-        var attempts: usize = 0;
-        while (attempts < self.threads.len) {
-            const victim_id = (thief_id + attempts + 1) % self.threads.len;
-            if (self.work_queues[victim_id].trySteal()) |task| {
-                self.steal_attempts.fetchAdd(1, .Monotonic);
-                return task;
-            }
-            attempts += 1;
-        }
-        return null;
+    pub fn noteSteal(self: *WorkStealingSketch) void {
+        _ = self.steal_attempts.fetchAdd(1, .acq_rel);
     }
 };
 ```
@@ -183,7 +158,7 @@ const WorkStealingExecutor = struct {
 ```zig
 const AsyncMemoryPool = struct {
     task_pool: std.heap.MemoryPool(Task),
-    future_pool: std.heap.MemoryPool(zsync.Future),
+    future_pool: std.heap.MemoryPool(FlashFuture),
     context_pool: std.heap.MemoryPool(AsyncContext),
 
     // Pre-allocated buffers for common operations
@@ -247,19 +222,15 @@ const AsyncError = error{
 };
 
 async fn resilientOperation(ctx: AsyncContext) AsyncError!Result {
-    // Set up cancellation
-    const cancellation_scope = try ctx.createCancellationScope();
-    defer cancellation_scope.deinit();
+    var command = AsyncCommand.init("/usr/bin/env", &.{ "printf", "ok" })
+        .withTimeout(ctx.timeout_ms orelse 30_000);
 
-    // Execute with timeout
-    const timeout_future = zsync.sleep(ctx.timeout_ms orelse 30_000);
-    const operation_future = actualOperation(ctx);
-
-    const winner = try zsync.select(&.{ operation_future, timeout_future });
-    return switch (winner) {
-        0 => try operation_future.await(),
-        1 => AsyncError.Timeout,
-        else => unreachable,
+    const result = try ctx.executeWithTimeout(command, ctx.timeout_ms orelse 30_000);
+    return switch (result) {
+        .success => .ok,
+        .timeout => AsyncError.Timeout,
+        .failure => AsyncError.FilesystemError,
+        .cancelled => AsyncError.Cancelled,
     };
 }
 ```
@@ -280,8 +251,8 @@ async fn cancellableOperation(ctx: AsyncContext) !void {
 
         try handleChunk(chunk);
 
-        // Yield to other tasks
-        try zsync.yield();
+        // Cooperative handoff point for thread-backed work
+        try std.Thread.yield();
     }
 }
 ```
@@ -374,11 +345,8 @@ pub fn executeCommand(command: Command, ctx: Context) !void {
     switch (command.handler_type) {
         .sync => try command.config.run(ctx),
         .async => {
-            var async_ctx = AsyncContext.init(ctx.allocator);
-            defer async_ctx.deinit();
-
-            const future = try async_ctx.executor.spawn(command.config.run_async, .{ctx});
-            try future.await();
+            var future = command.config.run_async(ctx);
+            try future.resolve();
         },
     }
 }
@@ -402,18 +370,9 @@ async fn properResourceManagement(ctx: AsyncContext) !void {
 ### 2. **Backpressure Handling**
 ```zig
 async fn handleBackpressure(ctx: AsyncContext) !void {
-    var semaphore = zsync.Semaphore.init(max_concurrent_operations);
-    defer semaphore.deinit();
-
-    for (work_items) |item| {
-        try semaphore.acquire(); // Blocks when limit reached
-
-        const future = try ctx.executor.spawn(processItem, .{item, &semaphore});
-        // Don't await here - let it run concurrently
-    }
-
-    // Wait for all to complete
-    try ctx.waitForAll();
+    ctx.setMaxConcurrency(max_concurrent_operations);
+    const results = try ctx.executeParallel(work_items);
+    defer ctx.allocator.free(results);
 }
 ```
 
@@ -429,7 +388,7 @@ async fn withRetryLogic(ctx: AsyncContext, operation: anytype) !Result {
             .retry => |err| {
                 retries += 1;
                 const delay = @min(1000 * (@as(u64, 1) << @intCast(retries)), 30_000);
-                try zsync.sleep(delay);
+                std.time.sleep(delay * std.time.ns_per_ms);
                 continue;
             },
             .fail => |err| return err,

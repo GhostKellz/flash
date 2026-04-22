@@ -1,0 +1,43 @@
+# ⚡ Flash completion script for Zsh
+# Generated for snapapp
+# Support dynamic completions, flags, and file completion
+
+_snapapp() {
+    local line
+    _arguments -C \
+        '-h[Show help information]' \
+        '--help[Show help information]' \
+        '-V[Show version information]' \
+        '--version[Show version information]' \
+        '1: :_commands' \
+        '*: :_files'
+
+    case $line[1] in
+        serve)
+            _snapapp_serve
+            ;;
+    esac
+}
+
+_snapapp_serve() {
+    local line
+    _arguments -C \
+        '-h[Show help information]' \
+        '--help[Show help information]' \
+        '-V[Show version information]' \
+        '--version[Show version information]' \
+        '*: :_files'
+
+}
+
+_commands() {
+    local commands; commands=(
+        'serve:Run the server'
+        'help:Show help information'
+        'version:Show version information'
+        'completion:Generate shell completion scripts'
+    )
+    _describe 'commands' commands
+}
+
+compdef _snapapp snapapp

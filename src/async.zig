@@ -1,445 +1,314 @@
 //! INTERNAL MODULE - NOT PART OF PUBLIC API
 //!
-//! This async integration module is experimental and incomplete.
-//! It is not exported from root.zig and should not be used directly.
-//!
-//! WARNING: Most functions in this module return error.Unimplemented.
-//! This is intentional - the module exists for future development but
-//! is not functional in v0.3.5.
-//!
-//! Current limitations:
-//! - AsyncRuntime.io is set to undefined (passed to handlers as undefined)
-//! - All execution methods return error.Unimplemented
-//! - Future combinators return error.Unimplemented
-//! - sleepNs() uses Linux-specific syscall (not portable)
-//!
-//! This module will be completed when zsync integration is finalized.
+//! Flash owns a small async runtime that uses Zig threads underneath. The goal
+//! is not to expose a public scheduler yet, but to provide real concurrent
+//! execution for internal async hooks such as `run_async`, async completion,
+//! async validation, and internal async CLI helpers.
 
 const std = @import("std");
-const zsync = @import("zsync");
 const Context = @import("context.zig");
 const Error = @import("error.zig");
 
-/// Sleep for the specified number of nanoseconds using Linux nanosleep syscall
-fn sleepNs(ns: u64) void {
-    const seconds = @as(isize, @intCast(ns / 1_000_000_000));
-    const nanoseconds = @as(isize, @intCast(ns % 1_000_000_000));
-    const req = std.os.linux.timespec{ .sec = seconds, .nsec = nanoseconds };
-    _ = std.os.linux.nanosleep(&req, null);
+pub fn ReturnType(comptime func: anytype) type {
+    return @typeInfo(@TypeOf(func)).@"fn".return_type.?;
 }
 
-/// Async command handler function signature using zsync.Io
-pub const AsyncHandlerFn = *const fn (zsync.Io, Context.Context) Error.FlashError!void;
-
-/// Future-based async handler for advanced use cases
-pub const FutureHandlerFn = *const fn (zsync.Io, Context.Context) Error.FlashError!zsync.Future;
-
-/// Flash async runtime for managing async operations with zsync
-pub const AsyncRuntime = struct {
-    allocator: std.mem.Allocator,
-    io: zsync.Io,
-    execution_model: ExecutionModel,
-    
-    pub const ExecutionModel = enum {
-        blocking,      // C-equivalent performance
-        thread_pool,   // OS thread parallelism
-        green_threads, // Cooperative multitasking
-        stackless,     // WASM-compatible
+pub fn ReturnTypeFromFnType(comptime Fn: type) type {
+    return switch (@typeInfo(Fn)) {
+        .@"fn" => |info| info.return_type.?,
+        .pointer => |ptr| switch (@typeInfo(ptr.child)) {
+            .@"fn" => |info| info.return_type.?,
+            else => @compileError("Expected function or pointer-to-function type"),
+        },
+        else => @compileError("Expected function or pointer-to-function type"),
     };
-    
-    pub fn init(allocator: std.mem.Allocator, model: ExecutionModel) AsyncRuntime {
-        // For now, create a placeholder I/O - real zsync integration will be added later
-        
-        return .{
-            .allocator = allocator,
-            .io = undefined, // Placeholder for now
-            .execution_model = model,
+}
+
+pub fn Future(comptime Result: type) type {
+    return struct {
+        allocator: std.mem.Allocator,
+        state: ?*State = null,
+        inline_result: Result = undefined,
+        is_ready: bool = false,
+
+        const Self = @This();
+
+        const State = struct {
+            thread: ?std.Thread,
+            result: Result = undefined,
         };
-    }
-    
-    /// Auto-detect optimal execution model and run task using zsync.run()
-    /// NOTE: This function is not implemented in v0.3.5. Returns error.Unimplemented.
-    pub fn runAuto(allocator: std.mem.Allocator, task: anytype, args: anytype) Error.FlashError!void {
-        _ = allocator;
-        _ = task;
-        _ = args;
-        return Error.FlashError.Unimplemented;
-    }
 
-    /// Run task with blocking execution using zsync.runBlocking()
-    /// NOTE: This function is not implemented in v0.3.5. Returns error.Unimplemented.
-    pub fn runBlocking(allocator: std.mem.Allocator, task: anytype, args: anytype) Error.FlashError!void {
-        _ = allocator;
-        _ = task;
-        _ = args;
-        return Error.FlashError.Unimplemented;
-    }
+        pub fn ready(allocator: std.mem.Allocator, value: Result) Self {
+            return .{
+                .allocator = allocator,
+                .inline_result = value,
+                .is_ready = true,
+            };
+        }
 
-    /// Run task with high-performance execution using zsync.runHighPerf()
-    /// NOTE: This function is not implemented in v0.3.5. Returns error.Unimplemented.
-    pub fn runHighPerf(allocator: std.mem.Allocator, task: anytype, args: anytype) Error.FlashError!void {
-        _ = allocator;
-        _ = task;
-        _ = args;
-        return Error.FlashError.Unimplemented;
-    }
-    
-    pub fn deinit(self: *AsyncRuntime) void {
-        // zsync handles cleanup internally
-        _ = self;
-    }
-    
-    /// Execute an async command handler using zsync
-    /// NOTE: This function is not implemented in v0.3.5. Returns error.Unimplemented.
-    pub fn runAsync(self: *AsyncRuntime, handler: AsyncHandlerFn, ctx: Context.Context) Error.FlashError!void {
-        _ = self;
-        _ = handler;
-        _ = ctx;
-        return Error.FlashError.Unimplemented;
-    }
+        pub fn resolve(self: *Self) Result {
+            return self.takeResult();
+        }
 
-    /// Execute an async operation with progress tracking
-    /// NOTE: This function is not implemented in v0.3.5. Returns error.Unimplemented.
-    pub fn runWithProgress(
-        self: *AsyncRuntime,
-        handler: AsyncHandlerFn,
-        ctx: Context.Context,
-        progress_msg: []const u8,
-    ) Error.FlashError!void {
-        _ = self;
-        _ = handler;
-        _ = ctx;
-        _ = progress_msg;
-        return Error.FlashError.Unimplemented;
-    }
-
-    /// Execute async operation with Future handling and cancellation support
-    /// NOTE: This function is not implemented in v0.3.5. Returns error.Unimplemented.
-    pub fn runFuture(self: *AsyncRuntime, handler: FutureHandlerFn, ctx: Context.Context) Error.FlashError!void {
-        _ = self;
-        _ = handler;
-        _ = ctx;
-        return Error.FlashError.Unimplemented;
-    }
-    
-    /// Execute operation with cooperative cancellation
-    pub fn runWithCancellation(
-        self: *AsyncRuntime, 
-        handler: AsyncHandlerFn, 
-        ctx: Context.Context,
-        cancel_token: ?*CancellationToken
-    ) Error.FlashError!void {
-        std.debug.print("⚡ Running async command with cancellation support...\n", .{});
-        
-        if (cancel_token) |token| {
-            if (token.is_cancelled) {
-                std.debug.print("❌ Operation cancelled before execution\n", .{});
-                return Error.FlashError.OperationCancelled;
+        pub fn deinit(self: *Self) void {
+            if (self.state) |state| {
+                if (state.thread) |thread| {
+                    thread.join();
+                    state.thread = null;
+                }
+                self.allocator.destroy(state);
+                self.state = null;
             }
+            self.is_ready = false;
         }
-        
-        // Execute the handler
-        try handler(self.io, ctx);
-        
-        std.debug.print("✅ Operation completed successfully!\n", .{});
-    }
-    
-    /// Execute with work-stealing optimization for CPU-bound tasks
-    pub fn runWorkStealing(
-        self: *AsyncRuntime,
-        tasks: []const WorkStealingTask,
-        ctx: Context.Context
-    ) Error.FlashError!void {
-        std.debug.print("⚡ Running {d} tasks with work-stealing optimization...\n", .{tasks.len});
-        
-        // In a real implementation, this would use zsync's work-stealing thread pool
-        for (tasks, 0..) |task, i| {
-            std.debug.print("🔄 Processing task {d}: {s}...", .{i + 1, task.name});
-            try task.handler(self.io, ctx);
-            std.debug.print(" ✅\n", .{});
+
+        fn takeResult(self: *Self) Result {
+            defer self.deinit();
+
+            if (self.is_ready) return self.inline_result;
+
+            const state = self.state orelse unreachable;
+            if (state.thread) |thread| {
+                thread.join();
+                state.thread = null;
+            }
+            return state.result;
         }
-        
-        std.debug.print("⚡ All work-stealing tasks completed!\n", .{});
-    }
-    
-    /// Create a Future from a simple function
-    pub fn createFuture(self: *AsyncRuntime, comptime func: SimpleAsyncFn, ctx: Context.Context) !zsync.Future {
-        // This would create a proper zsync Future in a full implementation
-        // For now, we'll execute synchronously and return a completed future
-        try func(ctx);
-        
-        return zsync.Future{
-            .ptr = undefined,
-            .vtable = undefined,
-            .state = std.atomic.Value(zsync.Future.State).init(.completed),
-            .wakers = std.ArrayList(zsync.Future.Waker).init(self.allocator),
-            .cancel_token = null,
-            .timeout = null,
-            .cancellation_chain = null,
-            .error_info = null,
-        };
-    }
-    
-    /// Spawn multiple async operations concurrently
-    pub fn spawnConcurrent(
-        _: *AsyncRuntime,
-        operations: []const ConcurrentOp
-    ) Error.FlashError!void {
-        std.debug.print("⚡ Running {d} operations concurrently...\n", .{operations.len});
-        
-        for (operations, 0..) |op, i| {
-            std.debug.print("🚀 [{d}] {s}...", .{i + 1, op.name});
-            try op.func(op.ctx);
-            std.debug.print(" ✅\n", .{});
+    };
+}
+
+pub fn spawn(allocator: std.mem.Allocator, comptime func: anytype, args: anytype) !Future(ReturnType(func)) {
+    const Result = ReturnType(func);
+    const FutureType = Future(Result);
+
+    const Task = struct {
+        allocator: std.mem.Allocator,
+        state: *FutureType.State,
+        args: @TypeOf(args),
+
+        fn run(task: *@This()) void {
+            defer task.allocator.destroy(task);
+            task.state.result = @call(.auto, func, task.args);
         }
-        
-        std.debug.print("⚡ All operations completed!\n", .{});
+    };
+
+    const state = try allocator.create(FutureType.State);
+    errdefer allocator.destroy(state);
+    state.* = .{ .thread = null };
+
+    const task = try allocator.create(Task);
+    errdefer allocator.destroy(task);
+    task.* = .{
+        .allocator = allocator,
+        .state = state,
+        .args = args,
+    };
+
+    state.thread = try std.Thread.spawn(.{ .allocator = allocator }, Task.run, .{task});
+
+    return .{
+        .allocator = allocator,
+        .state = state,
+    };
+}
+
+pub fn spawnFn(allocator: std.mem.Allocator, comptime Fn: type, func: Fn, args: anytype) !Future(ReturnTypeFromFnType(Fn)) {
+    const Result = ReturnTypeFromFnType(Fn);
+    const FutureType = Future(Result);
+
+    const Task = struct {
+        allocator: std.mem.Allocator,
+        func: Fn,
+        state: *FutureType.State,
+        args: @TypeOf(args),
+
+        fn run(task: *@This()) void {
+            defer task.allocator.destroy(task);
+            task.state.result = @call(.auto, task.func, task.args);
+        }
+    };
+
+    const state = try allocator.create(FutureType.State);
+    errdefer allocator.destroy(state);
+    state.* = .{ .thread = null };
+
+    const task = try allocator.create(Task);
+    errdefer allocator.destroy(task);
+    task.* = .{
+        .allocator = allocator,
+        .func = func,
+        .state = state,
+        .args = args,
+    };
+
+    state.thread = try std.Thread.spawn(.{ .allocator = allocator }, Task.run, .{task});
+
+    return .{
+        .allocator = allocator,
+        .state = state,
+    };
+}
+
+pub fn runTask(allocator: std.mem.Allocator, comptime func: anytype, args: anytype) !ReturnType(func) {
+    var future = try spawn(allocator, func, args);
+    return future.resolve();
+}
+
+pub fn runFn(allocator: std.mem.Allocator, comptime Fn: type, func: Fn, args: anytype) !ReturnTypeFromFnType(Fn) {
+    var future = try spawnFn(allocator, Fn, func, args);
+    return future.resolve();
+}
+
+fn spawnRuntimeFn(allocator: std.mem.Allocator, comptime Fn: type, func: Fn, args: anytype) Error.FlashError!Future(ReturnTypeFromFnType(Fn)) {
+    return spawnFn(allocator, Fn, func, args) catch Error.FlashError.AsyncExecutionFailed;
+}
+
+fn runRuntimeFn(allocator: std.mem.Allocator, comptime Fn: type, func: Fn, args: anytype) Error.FlashError!ReturnTypeFromFnType(Fn) {
+    var future = try spawnRuntimeFn(allocator, Fn, func, args);
+    return future.resolve();
+}
+
+pub const SimpleAsyncFn = *const fn (Context.Context) Error.FlashError!void;
+
+pub const ExecutionModel = enum {
+    blocking,
+    cooperative,
+    thread_pool,
+};
+
+pub const CancellationToken = struct {
+    is_cancelled: std.atomic.Value(bool) = .init(false),
+    reason: ?[]const u8 = null,
+
+    pub fn init() CancellationToken {
+        return .{};
+    }
+
+    pub fn cancel(self: *CancellationToken, reason: ?[]const u8) void {
+        self.reason = reason;
+        self.is_cancelled.store(true, .release);
+    }
+
+    pub fn checkCancellation(self: *const CancellationToken) Error.FlashError!void {
+        if (self.is_cancelled.load(.acquire)) return Error.FlashError.OperationCancelled;
     }
 };
 
-/// Future combinators for advanced async operations
-/// NOTE: All combinators return error.Unimplemented in v0.3.5.
-pub const FutureCombinators = struct {
-    /// Race multiple futures, return the first to complete
-    /// NOTE: Not implemented in v0.3.5.
-    pub fn race(_: std.mem.Allocator, futures: []zsync.Future) Error.FlashError!zsync.Future {
-        _ = futures;
-        return Error.FlashError.Unimplemented;
-    }
-
-    /// Wait for all futures to complete
-    /// NOTE: Not implemented in v0.3.5.
-    pub fn all(allocator: std.mem.Allocator, futures: []zsync.Future) Error.FlashError!zsync.Future {
-        _ = allocator;
-        _ = futures;
-        return Error.FlashError.Unimplemented;
-    }
-
-    /// Add timeout to a future
-    /// NOTE: Not implemented in v0.3.5.
-    pub fn timeout(_: std.mem.Allocator, future: zsync.Future, timeout_ms: u64) Error.FlashError!zsync.Future {
-        _ = future;
-        _ = timeout_ms;
-        return Error.FlashError.Unimplemented;
-    }
-
-    /// Select the first future to complete from multiple options
-    /// NOTE: Not implemented in v0.3.5.
-    pub fn select(_: std.mem.Allocator, futures: []zsync.Future) Error.FlashError!struct {
-        index: usize,
-        result: zsync.Future,
-    } {
-        _ = futures;
-        return Error.FlashError.Unimplemented;
-    }
-};
-
-/// Concurrent operation definition
 pub const ConcurrentOp = struct {
     name: []const u8,
     func: SimpleAsyncFn,
     ctx: Context.Context,
 };
 
-/// Simple async function signature
-pub const SimpleAsyncFn = *const fn (Context.Context) Error.FlashError!void;
+pub const AsyncRuntime = struct {
+    allocator: std.mem.Allocator,
+    execution_model: ExecutionModel,
 
-/// Cancellation token for cooperative cancellation
-pub const CancellationToken = struct {
-    is_cancelled: bool = false,
-    reason: ?[]const u8 = null,
-    
-    pub fn init() CancellationToken {
-        return .{};
+    pub fn init(allocator: std.mem.Allocator, model: ExecutionModel) AsyncRuntime {
+        return .{
+            .allocator = allocator,
+            .execution_model = model,
+        };
     }
-    
-    pub fn cancel(self: *CancellationToken, reason: ?[]const u8) void {
-        self.is_cancelled = true;
-        self.reason = reason;
+
+    pub fn deinit(self: *AsyncRuntime) void {
+        _ = self;
     }
-    
-    pub fn checkCancellation(self: *const CancellationToken) Error.FlashError!void {
-        if (self.is_cancelled) {
-            return Error.FlashError.OperationCancelled;
+
+    pub fn runAuto(allocator: std.mem.Allocator, task: anytype, args: anytype) !void {
+        _ = try runTask(allocator, task, args);
+    }
+
+    pub fn runBlocking(allocator: std.mem.Allocator, task: anytype, args: anytype) !void {
+        _ = try runTask(allocator, task, args);
+    }
+
+    pub fn runHighPerf(allocator: std.mem.Allocator, task: anytype, args: anytype) !void {
+        _ = try runTask(allocator, task, args);
+    }
+
+    pub fn runAsync(self: *AsyncRuntime, handler: SimpleAsyncFn, ctx: Context.Context) Error.FlashError!void {
+        _ = self.execution_model;
+        var future = try spawnRuntimeFn(self.allocator, SimpleAsyncFn, handler, .{ctx});
+        try future.resolve();
+    }
+
+    pub fn runWithCancellation(self: *AsyncRuntime, handler: SimpleAsyncFn, ctx: Context.Context, cancel_token: ?*CancellationToken) Error.FlashError!void {
+        if (cancel_token) |token| try token.checkCancellation();
+        try self.runAsync(handler, ctx);
+    }
+
+    pub fn createFuture(self: *AsyncRuntime, func: SimpleAsyncFn, ctx: Context.Context) !Future(Error.FlashError!void) {
+        return spawnRuntimeFn(self.allocator, SimpleAsyncFn, func, .{ctx});
+    }
+
+    pub fn spawnConcurrent(self: *AsyncRuntime, operations: []const ConcurrentOp) Error.FlashError!void {
+        var futures: std.ArrayList(Future(Error.FlashError!void)) = .empty;
+        defer {
+            for (futures.items) |*future| future.deinit();
+            futures.deinit(self.allocator);
+        }
+
+        for (operations) |op| {
+            _ = op.name;
+            try futures.append(self.allocator, try spawnRuntimeFn(self.allocator, SimpleAsyncFn, op.func, .{op.ctx}));
+        }
+
+        for (futures.items) |*future| {
+            try future.resolve();
         }
     }
 };
 
-/// Work-stealing task definition for CPU-bound operations
-pub const WorkStealingTask = struct {
-    name: []const u8,
-    handler: AsyncHandlerFn,
-    priority: Priority = .normal,
-    
-    pub const Priority = enum {
-        low,
-        normal,
-        high,
-        critical,
+test "spawn executes work on a thread" {
+    const Work = struct {
+        fn run(value: usize) usize {
+            return value + 1;
+        }
     };
-};
 
-/// Async command helpers showcasing zsync capabilities
-pub const AsyncHelpers = struct {
-    /// Simulate network request using zsync
-    pub fn networkFetch(io: zsync.Io, ctx: Context.Context) Error.FlashError!void {
-        const url = ctx.getString("url") orelse "https://api.github.com/zen";
-        std.debug.print("🌐 Fetching from {s} using zsync...\n", .{url});
-
-        // Simulate async network call
-        sleepNs(300 * 1000 * 1000); // 300ms
-        std.debug.print("📡 Response received!\n", .{});
-        
-        _ = io; // In real implementation, would use io for network operations
-    }
-    
-    /// Simulate file processing with zsync
-    pub fn fileProcessor(io: zsync.Io, ctx: Context.Context) Error.FlashError!void {
-        const file = ctx.getString("file") orelse "data.txt";
-        std.debug.print("📁 Processing file: {s}\n", .{file});
-
-        // Simulate async file operations
-        sleepNs(200 * 1000 * 1000); // 200ms
-        std.debug.print("✅ File processed successfully!\n", .{});
-        
-        _ = io; // In real implementation, would use io for file operations
-    }
-    
-    /// Simulate database operation with zsync
-    pub fn databaseQuery(io: zsync.Io, ctx: Context.Context) Error.FlashError!void {
-        const query = ctx.getString("query") orelse "SELECT * FROM users";
-        std.debug.print("🗃️ Executing query: {s}\n", .{query});
-
-        // Simulate async database call
-        sleepNs(400 * 1000 * 1000); // 400ms
-        std.debug.print("📊 Query completed! Found 42 rows.\n", .{});
-        
-        _ = io; // In real implementation, would use io for database operations
-    }
-    
-    /// Example of concurrent operations with zsync
-    pub fn concurrentTasks(io: zsync.Io, ctx: Context.Context) Error.FlashError!void {
-        std.debug.print("🚀 Running concurrent tasks with zsync...\n", .{});
-        
-        // In a real implementation, these would run concurrently using zsync
-        try networkFetch(io, ctx);
-        try fileProcessor(io, ctx);
-        try databaseQuery(io, ctx);
-        
-        std.debug.print("⚡ All concurrent tasks completed!\n", .{});
-    }
-    
-    /// Example of Future-based operation
-    pub fn futureExample(_: zsync.Io, _: Context.Context) Error.FlashError!zsync.Future {
-        std.debug.print("🔮 Creating zsync Future...\n", .{});
-
-        // In a real implementation, this would create a proper zsync Future
-        // that represents an ongoing async operation
-        sleepNs(100 * 1000 * 1000); // 100ms
-        std.debug.print("✨ Future operation completed!\n", .{});
-        
-        return zsync.Future{
-            .ptr = undefined,
-            .vtable = undefined, 
-            .state = std.atomic.Value(zsync.Future.State).init(.completed),
-            .wakers = std.ArrayList(zsync.Future.Waker).init(std.heap.page_allocator),
-            .cancel_token = null,
-            .timeout = null,
-            .cancellation_chain = null,
-            .error_info = null,
-        };
-    }
-    
-    /// Example using new zsync v0.4.0 runtime functions
-    pub fn zsyncV4Example(ctx: Context.Context) Error.FlashError!void {
-        std.debug.print("🚀 Demonstrating zsync v0.4.0 features...\n", .{});
-        
-        // Use the new auto-detecting run function
-        const task = struct {
-            fn run(args: anytype) !void {
-                _ = args;
-                std.debug.print("⚡ Task running with auto-detected optimal execution model\n", .{});
-                sleepNs(100 * 1000 * 1000); // 100ms simulation
-            }
-        }.run;
-        
-        // Auto-detect optimal execution model
-        AsyncRuntime.runAuto(ctx.allocator, task, .{}) catch |err| switch (err) {
-            Error.FlashError.AsyncExecutionFailed => {
-                std.debug.print("❌ Auto execution failed, falling back to blocking...\n", .{});
-                try AsyncRuntime.runBlocking(ctx.allocator, task, .{});
-            },
-            else => return err,
-        };
-        
-        std.debug.print("✅ zsync v0.4.0 demo completed!\n", .{});
-    }
-    
-    /// Demonstrate colorblind async - same code, multiple execution models
-    pub fn colorblindAsyncDemo(ctx: Context.Context) Error.FlashError!void {
-        std.debug.print("🌈 Demonstrating colorblind async...\n", .{});
-        
-        const colorblind_task = struct {
-            fn run(args: anytype) !void {
-                _ = args;
-                std.debug.print("🎨 This task runs identically across all execution models!\n", .{});
-                // Simulate some work
-                var i: u32 = 0;
-                while (i < 100000) : (i += 1) {
-                    _ = @mulWithOverflow(i, i); // Some CPU work, with overflow protection
-                }
-            }
-        }.run;
-        
-        // Same task, different execution models
-        std.debug.print("📋 Running with blocking model...\n", .{});
-        try AsyncRuntime.runBlocking(ctx.allocator, colorblind_task, .{});
-        
-        std.debug.print("🔥 Running with high-performance model...\n", .{});
-        try AsyncRuntime.runHighPerf(ctx.allocator, colorblind_task, .{});
-        
-        std.debug.print("🤖 Running with auto-detection...\n", .{});
-        try AsyncRuntime.runAuto(ctx.allocator, colorblind_task, .{});
-        
-        std.debug.print("✅ Colorblind async demo completed!\n", .{});
-    }
-};
-
-test "async runtime basic functionality" {
-    const allocator = std.testing.allocator;
-    var runtime = AsyncRuntime.init(allocator, .blocking);
-    defer runtime.deinit();
-    
-    // Test basic async runtime creation
-    try std.testing.expect(runtime.allocator.ptr == allocator.ptr);
-    try std.testing.expect(runtime.execution_model == .blocking);
+    var future = try spawn(std.testing.allocator, Work.run, .{41});
+    try std.testing.expectEqual(@as(usize, 42), future.resolve());
 }
 
-test "concurrent operations" {
-    const allocator = std.testing.allocator;
-    var runtime = AsyncRuntime.init(allocator, .blocking);
-    defer runtime.deinit();
-    
-    var ctx = Context.Context.init(allocator, &.{});
-    defer ctx.deinit();
-    
-    const TaskFuncs = struct {
-        fn simulateNetworkCall(ctx_arg: Context.Context) Error.FlashError!void {
-            _ = ctx_arg;
-            std.debug.print("🌐 Simulating network call...\n", .{});
-        }
-        
-        fn simulateFileProcessing(ctx_arg: Context.Context) Error.FlashError!void {
-            _ = ctx_arg;
-            std.debug.print("📁 Simulating file processing...\n", .{});
+test "async runtime propagates handler errors" {
+    const Handlers = struct {
+        fn fail(_: Context.Context) Error.FlashError!void {
+            return Error.FlashError.InvalidInput;
         }
     };
 
-    const ops = [_]ConcurrentOp{
-        .{ .name = "Task 1", .func = TaskFuncs.simulateNetworkCall, .ctx = ctx },
-        .{ .name = "Task 2", .func = TaskFuncs.simulateFileProcessing, .ctx = ctx },
+    var runtime = AsyncRuntime.init(std.testing.allocator, .thread_pool);
+    defer runtime.deinit();
+
+    var ctx = Context.Context.init(std.testing.allocator, &.{});
+    defer ctx.deinit();
+
+    try std.testing.expectError(Error.FlashError.InvalidInput, runtime.runAsync(Handlers.fail, ctx));
+}
+
+test "spawnConcurrent runs all operations" {
+    const Ops = struct {
+        var counter = std.atomic.Value(usize).init(0);
+
+        fn run(_: Context.Context) Error.FlashError!void {
+            _ = counter.fetchAdd(1, .acq_rel);
+        }
     };
-    
-    // This should complete without error
+
+    Ops.counter.store(0, .release);
+
+    var runtime = AsyncRuntime.init(std.testing.allocator, .thread_pool);
+    defer runtime.deinit();
+
+    var ctx = Context.Context.init(std.testing.allocator, &.{});
+    defer ctx.deinit();
+
+    const ops = [_]ConcurrentOp{
+        .{ .name = "one", .func = Ops.run, .ctx = ctx },
+        .{ .name = "two", .func = Ops.run, .ctx = ctx },
+    };
+
     try runtime.spawnConcurrent(&ops);
+    try std.testing.expectEqual(@as(usize, 2), Ops.counter.load(.acquire));
 }

@@ -6,8 +6,8 @@ echo "=== Flash Test Suite ==="
 echo "Zig version: $(zig version)"
 echo ""
 
-echo ">>> Running zig build test..."
-zig build test
+echo ">>> Running zig build test --summary all..."
+zig build test --summary all
 
 echo ""
 echo ">>> Running demo commands..."

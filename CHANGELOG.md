@@ -5,6 +5,58 @@ All notable changes to Flash will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-21
+
+### Added
+- Built-in `completion` and internal `__complete` command paths wired through the CLI runtime
+- Real dynamic Bash completion context handling for nested subcommands and option-value completion
+- Real async dynamic completion execution for `async_completion_fn`
+- Recursive completion generation for Zsh, Fish, PowerShell, and NuShell command trees
+- Shared command-scope/global-flag resolution used across parser defaults, runtime help, and completion generation
+- End-to-end tests covering nested help routing, inherited global flags, dynamic completion context parsing, and recursive completion backends
+- Golden snapshot coverage for help output, Bash completion, Zsh completion, and TOML diagnostics
+- Checked-in snapshot fixtures under `tests/snapshots/`
+- Public API/stability overview, installation guide, migration guide, and release checklist docs
+- Production-grade example documentation and shipped source example
+- `zig build verify` step covering build, tests, and shipped examples
+
+### Changed
+- Migrated TOML parsing from zontom to flare
+- Updated to Zig 0.17.0-dev
+- README badge updated to 0.17-dev
+- Updated build/test coverage to run the full module suite by default
+- Added Flare-backed TOML diagnostics and presence-aware config merge support
+- Version metadata is now sourced from `build.zig.zon`
+- README, guides, and examples were reworked around the macro-first product direction and the current completion/backend maturity
+- Bash and Zsh completion are now the strongest supported backends; Fish is recursive/shared-scope; PowerShell and NuShell now emit recursive command trees
+- Replaced the old `zsync` dependency with Flash-owned internal async foundations
+- Internal async command execution, validation, completion, and tooling now run on Flash's owned thread-backed future runtime
+- README and docs now include an explicit support matrix and clearer stable/experimental/internal boundaries
+- Shipped examples were rewritten to the current public API and are now built as part of verification
+- Docker full-check now includes shipped example builds in addition to build, tests, and Valgrind
+
+### Fixed
+- Version test updated to match package version
+- Resolved remaining Zig 0.17 stdlib migration issues in parser, config, declarative, validation, testing, and related support modules
+- Removed ad hoc `/tmp/flash*` test scratch usage and moved test scratch into project-local `.zig-cache/tmp`
+- Fixed misleading `zig build test` warning-style output caused by progress rendering and noisy stderr during passing tests
+- Fixed hidden/help/completion inconsistencies, option-style help rendering, and nested subcommand help targeting
+- Fixed stale Zig `0.16` references in Docker/test artifacts and bundled templates
+- Removed the remaining `zsync` imports from command, completion, validation, async, and benchmark codepaths
+- Fixed the declarative public path to stop referencing removed Zig stdlib argv helpers on the current baseline
+- Fixed snapshot tests to use repo-relative fixture paths so they pass in both local and Docker verification
+
+---
+
+## [0.3.6] - 2026-04-19
+
+### Changed
+- Removed zontom dependency (archived)
+- Updated zsync to v0.8.0
+- Updated to Zig 0.17.0-dev
+
+---
+
 ## [0.3.5] - 2026-04-15
 
 ### Added
@@ -24,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests for declarative validator wiring and choices wiring
 - Tests for prompts module configuration builders
 - promptForArgument now handles all ArgTypes including array and enum with choices
-- TOML configuration parsing via zontom integration
+- TOML configuration parsing via Flare integration
 - Tests for env.zig FileConfigNotSupported error and builder methods
 - Tests for declarative hidden/multiple/short/long field wiring
 - Tests for macro helpers (ChainBuilder, arg, flag, Middleware, withValidation)
@@ -37,7 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Version is now sourced from build.zig.zon at compile time via build options
-- TOML config parsing now works via zontom; YAML returns `UnsupportedConfigFormat`
+- TOML config parsing now works via Flare; YAML returns `UnsupportedConfigFormat`
 - README rebaselined with accurate feature maturity (stable/experimental/planned)
 - Badges updated to for-the-badge style
 - Testing infrastructure rewritten for real CLI execution (was fake mock output)
@@ -87,7 +139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - root.zig module doc now lists all shell completion targets (Bash, Zsh, Fish, PowerShell, NuShell)
 - root.zig Prompts comment clarifies visible password input limitation
 - declarative-config.md limitations section updated (env field removed, hidden/multiple now wired)
-- README.md TOML feature now links to zontom repository
+- README.md TOML feature now links to Flare
 
 ### Removed
 - Removed `Async` export from public API (async.zig remains internal)

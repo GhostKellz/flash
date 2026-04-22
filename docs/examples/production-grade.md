@@ -1,3 +1,17 @@
+# Production-Grade CLI Example
+
+This is the strongest “copy this into a real project” example for `v0.4.0`.
+
+It combines:
+
+- nested commands
+- global flags
+- TOML via Flare
+- explicit config layering
+- built-in completion generation
+- test-harness-friendly structure
+
+```zig
 const std = @import("std");
 const flash = @import("flash");
 
@@ -7,27 +21,27 @@ const AppConfig = struct {
     debug: bool = false,
 };
 
-const ExampleCLI = flash.CLI(.{
-    .name = "servectl",
+const App = flash.CLI(.{
+    .name = "opsctl",
     .version = flash.version_string,
-    .about = "Config-first Flash example",
+    .about = "Production-style Flash CLI",
 });
 
 fn serve(ctx: flash.Context) flash.Error!void {
     const allocator = ctx.allocator;
-
     const parser = flash.Config.ConfigParser.init(allocator);
+
     const file_cfg = try parser.parseContent(AppConfig,
         \\host = "0.0.0.0"
         \\port = 9000
     , .toml);
 
-    var override_cfg = AppConfig{};
-    if (ctx.getString("host")) |host| override_cfg.host = host;
-    if (ctx.getInt("port")) |port| override_cfg.port = @intCast(port);
-    if (ctx.getBool("debug")) |debug| override_cfg.debug = debug;
+    var cli_cfg = AppConfig{};
+    if (ctx.getString("host")) |host| cli_cfg.host = host;
+    if (ctx.getInt("port")) |port| cli_cfg.port = @intCast(port);
+    if (ctx.getBool("debug")) |debug| cli_cfg.debug = debug;
 
-    const merged = flash.Config.ConfigParser.merge(AppConfig, file_cfg, override_cfg);
+    const merged = flash.Config.ConfigParser.merge(AppConfig, file_cfg, cli_cfg);
     std.debug.print("serving on {s}:{d} debug={}\n", .{ merged.host, merged.port, merged.debug });
 }
 
@@ -43,19 +57,20 @@ pub fn main(init: std.process.Init) !void {
             .withHelp("Enable debug mode"))})
         .withHandler(serve));
 
-    var cli = ExampleCLI.init(init.gpa, (flash.CommandConfig{})
+    var cli = App.init(init.gpa, (flash.CommandConfig{})
+        .withFlags(&.{flash.flag("verbose", (flash.FlagConfig{})
+            .withShort('v')
+            .withLong("verbose")
+            .withHelp("Verbose output")
+            .setGlobal())})
         .withSubcommands(&.{serve_cmd}));
+
     try cli.runWithInit(init);
 }
+```
 
-test "config merge example" {
-    const allocator = std.testing.allocator;
-    const parser = flash.Config.ConfigParser.init(allocator);
-    const cfg = try parser.parseContent(AppConfig,
-        \\host = "127.0.0.1"
-        \\port = 8081
-    , .toml);
+Recommended follow-up:
 
-    try std.testing.expectEqualStrings("127.0.0.1", cfg.host);
-    try std.testing.expectEqual(@as(u16, 8081), cfg.port);
-}
+1. add `zig build run -- completion bash > completions/opsctl.bash`
+2. add help/completion snapshots in your own test suite
+3. move the inline TOML string to a real config file

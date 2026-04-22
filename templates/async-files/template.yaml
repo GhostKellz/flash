@@ -6,7 +6,7 @@ author: "Flash CLI Framework"
 # Template configuration
 config:
   min_flash_version: "1.0.0"
-  zig_version: "0.16.0"
+  zig_version: "0.17.0-dev"
 
 # Required variables
 variables:

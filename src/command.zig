@@ -4,17 +4,17 @@
 //! async command handlers, and rich metadata.
 
 const std = @import("std");
-const zsync = @import("zsync");
 const Argument = @import("argument.zig");
 const Flag = @import("flag.zig");
 const Context = @import("context.zig");
 const Error = @import("error.zig");
+const flash_async = @import("async.zig");
 
 /// Command handler function signature (sync)
 pub const HandlerFn = *const fn (Context.Context) Error.FlashError!void;
 
-/// Async command handler function signature with zsync
-pub const AsyncHandlerFn = *const fn (Context.Context) zsync.Future;
+/// Async command handler function signature using Flash-owned futures.
+pub const AsyncHandlerFn = *const fn (Context.Context) flash_async.Future(Error.FlashError!void);
 
 /// Command configuration
 pub const CommandConfig = struct {
@@ -196,7 +196,7 @@ pub const Command = struct {
     /// Find an argument by name
     pub fn findArg(self: Command, name: []const u8) ?Argument.Argument {
         for (self.config.args) |arg| {
-            if (std.mem.eql(u8, arg.name, name)) {
+            if (std.mem.eql(u8, arg.name, name) or arg.matchesFlag(name)) {
                 return arg;
             }
         }
@@ -213,6 +213,90 @@ pub const Command = struct {
         return null;
     }
 
+    /// Find a global flag by name anywhere in this command tree
+    pub fn findGlobalFlag(self: Command, name: []const u8) ?Flag.Flag {
+        if (self.findFlag(name)) |flag| {
+            if (flag.isGlobal()) return flag;
+        }
+
+        for (self.config.subcommands) |subcmd| {
+            if (subcmd.findGlobalFlag(name)) |flag| {
+                return flag;
+            }
+        }
+
+        return null;
+    }
+
+    /// Resolve a nested command by full command path.
+    pub fn findCommandByPath(root: Command, path: []const []const u8) ?Command {
+        if (path.len == 0) return root;
+
+        var current = root;
+        for (path) |segment| {
+            current = current.findSubcommand(segment) orelse return null;
+        }
+        return current;
+    }
+
+    /// Collect inherited global flags from the root down to the current command scope.
+    pub fn collectInheritedGlobalFlags(root: Command, path: []const []const u8, allocator: std.mem.Allocator) ![]Flag.Flag {
+        if (path.len == 0) return allocator.alloc(Flag.Flag, 0);
+
+        var flags = std.ArrayList(Flag.Flag).empty;
+        defer flags.deinit(allocator);
+
+        var current = root;
+        var depth: usize = 0;
+        while (depth < path.len) : (depth += 1) {
+            for (current.getFlags()) |flag| {
+                if (!flag.isGlobal()) continue;
+                if (containsFlagNamed(flags.items, flag.name)) continue;
+                try flags.append(allocator, flag);
+            }
+
+            if (depth + 1 >= path.len) break;
+            current = current.findSubcommand(path[depth]) orelse break;
+        }
+
+        return flags.toOwnedSlice(allocator);
+    }
+
+    /// Collect all flags visible in a command scope: inherited globals first, then local flags.
+    pub fn collectScopedFlags(root: Command, path: []const []const u8, allocator: std.mem.Allocator) ![]Flag.Flag {
+        const inherited = try collectInheritedGlobalFlags(root, path, allocator);
+        defer allocator.free(inherited);
+
+        const current = findCommandByPath(root, path) orelse root;
+
+        var flags = std.ArrayList(Flag.Flag).empty;
+        defer flags.deinit(allocator);
+
+        for (inherited) |flag| {
+            try flags.append(allocator, flag);
+        }
+
+        for (current.getFlags()) |flag| {
+            var replaced = false;
+            for (flags.items, 0..) |existing, i| {
+                if (!std.mem.eql(u8, existing.name, flag.name)) continue;
+                flags.items[i] = flag;
+                replaced = true;
+                break;
+            }
+            if (!replaced) try flags.append(allocator, flag);
+        }
+
+        return flags.toOwnedSlice(allocator);
+    }
+
+    fn containsFlagNamed(flags: []const Flag.Flag, name: []const u8) bool {
+        for (flags) |flag| {
+            if (std.mem.eql(u8, flag.name, name)) return true;
+        }
+        return false;
+    }
+
     /// Execute the command handler
     pub fn execute(self: Command, ctx: Context.Context) Error.FlashError!void {
         // Run before hook if present
@@ -224,11 +308,8 @@ pub const Command = struct {
         if (self.config.run) |handler| {
             try handler(ctx);
         } else if (self.config.run_async) |async_handler| {
-            // Execute async handler with zsync
-            const future = async_handler(ctx);
-            // For now, just execute synchronously until we have proper zsync integration
-            _ = future;
-            std.debug.print("⚡ Async command executed (simplified for demo)\n", .{});
+            var future = async_handler(ctx);
+            try future.resolve();
         }
 
         // Run after hook if present
@@ -311,4 +392,22 @@ test "command with subcommands" {
     try std.testing.expectEqualStrings("start", cmd.findSubcommand("start").?.name);
     try std.testing.expectEqualStrings("stop", cmd.findSubcommand("stop").?.name);
     try std.testing.expectEqual(@as(?Command, null), cmd.findSubcommand("missing"));
+}
+
+test "collect scoped flags includes inherited globals" {
+    const allocator = std.testing.allocator;
+
+    const cmd = Command.init("app", (CommandConfig{})
+        .withFlags(&.{Flag.Flag.init("verbose", (Flag.FlagConfig{})
+            .withLong("verbose")
+            .setGlobal())})
+        .withSubcommands(&.{Command.init("serve", (CommandConfig{})
+        .withFlags(&.{Flag.Flag.init("port", (Flag.FlagConfig{}).withLong("port"))}))}));
+
+    const flags = try Command.collectScopedFlags(cmd, &.{"serve"}, allocator);
+    defer allocator.free(flags);
+
+    try std.testing.expect(flags.len >= 2);
+    try std.testing.expect(std.mem.eql(u8, flags[0].name, "verbose") or std.mem.eql(u8, flags[1].name, "verbose"));
+    try std.testing.expect(flags[0].matchesFlag("port") or flags[1].matchesFlag("port"));
 }

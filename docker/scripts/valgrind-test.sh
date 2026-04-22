@@ -7,21 +7,19 @@ echo "Zig version: $(zig version)"
 echo "Valgrind version: $(valgrind --version)"
 echo ""
 
-# Build in debug mode with baseline CPU for Valgrind compatibility
-# Zig 0.16 uses AVX-512 by default which Valgrind 3.22 doesn't support
+LOG_DIR="/workspace/.zig-cache/valgrind"
+mkdir -p "$LOG_DIR"
+
+# Build in debug mode with baseline CPU for Valgrind compatibility.
+# Recent Zig dev builds may still produce DWARF warnings under Valgrind,
+# but those warnings are distinct from real leak findings.
 echo ">>> Building in Debug mode (baseline CPU for Valgrind)..."
 zig build -Doptimize=Debug -Dcpu=baseline
 
-# Find the test binary
 TEST_BIN="./zig-out/bin/flash"
-if [[ ! -f "$TEST_BIN" ]]; then
-    # Try to find any built binary
-    TEST_BIN=$(find ./zig-out -type f -executable -name "flash*" 2>/dev/null | head -1)
-fi
-
 if [[ -z "$TEST_BIN" || ! -f "$TEST_BIN" ]]; then
-    echo "Warning: No flash binary found, running demo instead"
-    TEST_BIN="zig-out/bin/lightning"
+    echo "ERROR: Expected binary not found at $TEST_BIN"
+    exit 1
 fi
 
 echo ">>> Testing binary: $TEST_BIN"
@@ -37,25 +35,32 @@ VALGRIND_OPTS=(
     --suppressions=/workspace/docker/scripts/zig.supp
 )
 
-# Create suppressions file for known Zig allocator patterns (if needed)
-if [[ ! -f /workspace/docker/scripts/zig.supp ]]; then
-    cat > /workspace/docker/scripts/zig.supp << 'EOF'
-# Zig runtime suppressions
-{
-   zig_std_start
-   Memcheck:Leak
-   ...
-   fun:std.start.*
-}
-EOF
-fi
-
 echo ">>> Running Valgrind on demo commands..."
 echo ""
 
+run_valgrind() {
+    local log_file="$1"
+    shift
+
+    local raw_log
+    raw_log=$(mktemp)
+    if valgrind "${VALGRIND_OPTS[@]}" "$TEST_BIN" "$@" >"$raw_log" 2>&1; then
+        :
+    else
+        local status=$?
+        # Keep the log for inspection even on failure.
+        grep -v "DWARF2 reader: Badly formed extended line op encountered" "$raw_log" | tee "$log_file"
+        rm -f "$raw_log"
+        return "$status"
+    fi
+
+    grep -v "DWARF2 reader: Badly formed extended line op encountered" "$raw_log" | tee "$log_file"
+    rm -f "$raw_log"
+}
+
 # Test 1: Help command
 echo "--- Test: --help ---"
-if valgrind "${VALGRIND_OPTS[@]}" "$TEST_BIN" --help 2>&1 | tee /tmp/valgrind-help.log; then
+if run_valgrind "$LOG_DIR/valgrind-help.log" --help; then
     echo "PASS: --help"
 else
     echo "Note: Valgrind reported issues (may be false positives with Zig)"
@@ -64,7 +69,7 @@ echo ""
 
 # Test 2: Echo command
 echo "--- Test: echo ---"
-if valgrind "${VALGRIND_OPTS[@]}" "$TEST_BIN" echo "memory test" 2>&1 | tee /tmp/valgrind-echo.log; then
+if run_valgrind "$LOG_DIR/valgrind-echo.log" echo "memory test"; then
     echo "PASS: echo"
 else
     echo "Note: Valgrind reported issues (may be false positives with Zig)"
@@ -73,7 +78,7 @@ echo ""
 
 # Test 3: Math command (nested subcommand)
 echo "--- Test: math add ---"
-if valgrind "${VALGRIND_OPTS[@]}" "$TEST_BIN" math add 5 10 2>&1 | tee /tmp/valgrind-math.log; then
+if run_valgrind "$LOG_DIR/valgrind-math.log" math add 5 10; then
     echo "PASS: math add"
 else
     echo "Note: Valgrind reported issues (may be false positives with Zig)"
@@ -82,14 +87,14 @@ echo ""
 
 # Summary
 echo "=== Valgrind Summary ==="
-echo "Logs saved to /tmp/valgrind-*.log"
+echo "Logs saved to $LOG_DIR"
 echo ""
 
-# Check for definite leaks in logs
-LEAKS=$(grep -l "definitely lost: [^0]" /tmp/valgrind-*.log 2>/dev/null | wc -l || echo "0")
-if [[ "$LEAKS" -gt 0 ]]; then
+# Check for definite leaks in logs.
+leak_matches=$(grep -hE "definitely lost: [1-9][0-9,]* bytes" "$LOG_DIR"/valgrind-*.log 2>/dev/null || true)
+if [[ -n "$leak_matches" ]]; then
     echo "WARNING: Found potential memory leaks. Review logs for details."
-    grep -h "definitely lost" /tmp/valgrind-*.log 2>/dev/null || true
+    printf '%s\n' "$leak_matches"
 else
     echo "No definite memory leaks detected."
 fi
@@ -97,8 +102,8 @@ fi
 # Show heap summaries
 echo ""
 echo "Heap summaries:"
-grep -h "total heap usage" /tmp/valgrind-*.log 2>/dev/null || true
-grep -h "All heap blocks were freed" /tmp/valgrind-*.log 2>/dev/null | head -1 || true
+grep -h "total heap usage" "$LOG_DIR"/valgrind-*.log 2>/dev/null || true
+grep -h "All heap blocks were freed" "$LOG_DIR"/valgrind-*.log 2>/dev/null | head -1 || true
 
 echo ""
 echo ">>> Valgrind analysis complete!"

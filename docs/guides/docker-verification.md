@@ -2,6 +2,8 @@
 
 Flash includes a Docker-based verification environment for consistent testing and memory leak detection with Valgrind.
 
+The container verification flow is intended as a release-readiness check, not a production image workflow.
+
 ## Quick Start
 
 ```bash
@@ -34,7 +36,7 @@ services:
     network_mode: host
     volumes:
       - .:/workspace:rw
-      - /opt/zig-0.16.0-dev:/opt/zig:ro
+      - /opt/zig-dev:/opt/zig:ro
     working_dir: /workspace
 ```
 
@@ -63,7 +65,7 @@ Builds the project in multiple optimization modes:
 
 Runs the full test suite:
 ```bash
-zig build test
+zig build test --summary all
 ```
 
 ### docker/scripts/valgrind-test.sh
@@ -92,7 +94,7 @@ Complete verification pipeline:
 
 ### AVX-512 Compatibility
 
-Zig 0.16+ uses AVX-512 instructions by default, which Valgrind 3.22 doesn't fully support. The `-Dcpu=baseline` flag forces a compatible instruction set:
+Current Zig `0.17.0-dev` builds may use instructions that Valgrind 3.22 does not fully support. The `-Dcpu=baseline` flag forces a more compatible instruction set:
 
 ```bash
 zig build -Doptimize=Debug -Dcpu=baseline
@@ -122,6 +124,8 @@ All heap blocks were freed -- no leaks are possible
 ```
 
 Zero "definitely lost" bytes indicates no memory leaks.
+
+Valgrind may still print DWARF reader warnings with Zig dev builds. Treat those as tooling/debug-info noise unless they are accompanied by non-zero leak summaries or a non-zero Valgrind exit status.
 
 ## Host Networking
 

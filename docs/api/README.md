@@ -1,256 +1,139 @@
-# 📚 Flash API Documentation
+# Flash API Overview
 
-Complete API reference for the Flash CLI framework.
+This document describes the public API Flash intends consumers to build against in `v0.4.0`.
 
-## 📖 Core Modules
+## Stable Public Surface
 
-### [CLI Module](cli.md)
-Main interface for creating and running CLI applications.
+These exports are the primary supported surface for application authors:
 
 ```zig
-const cli = flash.CLI(.{
+flash.CLI
+flash.Command
+flash.CommandConfig
+flash.Argument
+flash.ArgumentConfig
+flash.ArgValue
+flash.Flag
+flash.FlagConfig
+flash.Context
+flash.Error
+flash.Env
+flash.Completion
+flash.Validation
+flash.Validators
+flash.Testing
+flash.Config
+```
+
+Core convenience helpers:
+
+```zig
+flash.cmd
+flash.arg
+flash.flag
+```
+
+## Experimental Public Surface
+
+These modules are exported, but the API may still change more quickly than the core CLI surface:
+
+```zig
+flash.Declarative
+flash.Macros
+flash.Prompts
+flash.Progress
+flash.Colors
+```
+
+Use them when they fit your project, but expect more iteration than the core command/argument/flag/runtime path.
+
+## Internal-Only Surface
+
+These modules exist in the repository but are not part of the supported public API for consumers:
+
+- Flash-owned async internals
+- security internals
+- benchmark internals
+- advanced validation internals
+- internal async CLI helpers
+
+Flash uses some of these internally for completion, validation, and testing support, but they are intentionally not exported from `src/root.zig`.
+
+## Stability Rules
+
+For `v0.4.0`, consumers should assume:
+
+- core CLI construction is the most stable path
+- Bash and Zsh completion are first-class
+- TOML via Flare is the preferred config story
+- JSON config is supported as a secondary path
+- YAML is unsupported
+- internal modules are not stability promises
+
+## Supported Consumer Workflows
+
+### Build a CLI
+
+```zig
+const std = @import("std");
+const flash = @import("flash");
+
+const App = flash.CLI(.{
     .name = "myapp",
-    .version = "1.0.0",
-    .commands = &.{...},
-});
-```
-
-### [Commands](commands.md)
-Command definitions, handlers, and subcommand hierarchies.
-
-```zig
-flash.cmd("deploy", .{
-    .about = "Deploy application",
-    .run_async = deployHandler,
-    .commands = &.{...},
-})
-```
-
-### [Arguments & Flags](args-flags.md)
-Input parsing, validation, and type-safe access.
-
-```zig
-flash.arg("file", .{
-    .help = "Input file",
-    .required = true,
-    .validator = fileValidator,
-})
-```
-
-### [Context](context.md)
-Execution context and parameter access.
-
-```zig
-fn handler(ctx: flash.Context) !void {
-    const file = ctx.get("file").?;
-    const verbose = ctx.getBool("verbose");
-}
-```
-
-## 🔧 Advanced Features
-
-### [Validation](validation.md)
-Rich validation framework with custom validators.
-
-```zig
-const validator = flash.validation.portInRange(1024, 65535);
-const email_validator = flash.validation.emailValidator();
-```
-
-### [Completion](completion.md)
-Shell completion generation system.
-
-```zig
-var generator = flash.completion.CompletionGenerator.init(allocator);
-const script = try generator.generate(command, .bash, "myapp");
-```
-
-### [Testing](testing.md)
-Comprehensive testing utilities and infrastructure.
-
-```zig
-var harness = flash.testing.TestHarness.init(allocator);
-const result = try harness.execute(cli, &.{"command", "arg"});
-```
-
-### [Documentation](documentation.md)
-Multi-format documentation generation.
-
-```zig
-var doc_gen = flash.documentation.DocGenerator.init(allocator, config);
-const markdown = try doc_gen.generate(command, .markdown, "myapp");
-```
-
-### [Async Operations](async.md)
-Async CLI capabilities and concurrent operations.
-
-```zig
-var async_ctx = flash.async_cli.AsyncContext.init(allocator);
-const results = try async_ctx.executeParallel(commands);
-```
-
-### [Benchmarking](benchmarking.md)
-Performance testing and metrics collection.
-
-```zig
-var benchmark = flash.benchmark.BenchmarkRunner.init(allocator, config);
-const result = try benchmark.benchmark("test", function, args);
-```
-
-## 🎯 Quick Reference
-
-### Common Types
-
-```zig
-// Main types
-flash.CLI(config)           // CLI application type
-flash.Context              // Execution context
-flash.Command              // Command definition
-flash.Argument             // Argument specification
-flash.Flag                 // Flag specification
-
-// Error types
-flash.Error.FlashError     // Main error union
-flash.Error.ValidationError // Validation failures
-flash.Error.ParseError     // Parsing failures
-
-// Async types
-flash.async_cli.AsyncContext      // Async execution context
-flash.async_cli.AsyncCommand      // Async command specification
-flash.async_cli.AsyncResult       // Async operation result
-
-// Testing types
-flash.testing.TestHarness         // CLI testing harness
-flash.testing.TestResult          // Test execution result
-flash.testing.SnapshotTester      // Snapshot testing utility
-
-// Validation types
-flash.validation.ValidationResult  // Validation outcome
-flash.validation.ValidatorFn       // Validator function type
-flash.validation.ValidationChain   // Multiple validators
-
-// Completion types
-flash.completion.Shell             // Target shell enum
-flash.completion.CompletionGenerator // Completion script generator
-```
-
-### Builder Functions
-
-```zig
-// CLI building
-flash.CLI(config)          // Create CLI type
-flash.cmd(name, config)    // Define command
-flash.arg(name, config)    // Define argument
-flash.flag(name, config)   // Define flag
-
-// Validation
-flash.validation.emailValidator()
-flash.validation.portInRange(min, max)
-flash.validation.fileValidator(must_exist, extensions)
-flash.validation.choiceValidator(choices, case_sensitive)
-
-// Async operations
-flash.async_cli.AsyncContext.init(allocator)
-flash.async_cli.AsyncFileOps.init(allocator)
-flash.async_cli.AsyncNetOps.init(allocator)
-
-// Testing
-flash.testing.TestHarness.init(allocator)
-flash.testing.SnapshotTester.init(allocator, dir, update)
-flash.testing.PerformanceTester.init(allocator)
-
-// Documentation
-flash.documentation.DocGenerator.init(allocator, config)
-```
-
-### Configuration Enums
-
-```zig
-// Shell types for completion
-.bash, .zsh, .fish, .powershell, .nushell
-
-// Documentation formats
-.markdown, .html, .man, .json, .yaml
-
-// Validation directives
-.default, .no_space, .no_file_comp, .filter_file_ext
-
-// Error kinds
-.invalid_type, .out_of_range, .invalid_format, .missing_required
-
-// Async result types
-.success, .error, .timeout, .cancelled
-```
-
-## 💡 Usage Patterns
-
-### Basic CLI
-```zig
-const MyCLI = flash.CLI(.{
-    .name = "myapp",
-    .version = "1.0.0",
-    .about = "My CLI application",
-    .commands = &.{
-        flash.cmd("greet", .{
-            .about = "Greet someone",
-            .args = &.{
-                flash.arg("name", .{.required = true}),
-            },
-            .run = greetHandler,
-        }),
-    },
+    .version = flash.version_string,
+    .about = "Example Flash application",
 });
 
-fn greetHandler(ctx: flash.Context) !void {
-    const name = ctx.get("name").?;
-    std.debug.print("Hello, {s}!\n", .{name});
+fn greet(ctx: flash.Context) flash.Error!void {
+    const name = ctx.getString("name") orelse return flash.Error.MissingRequiredArgument;
+    std.debug.print("hello, {s}\n", .{name});
+}
+
+pub fn main(init: std.process.Init) !void {
+    var cli = App.init(init.gpa, (flash.CommandConfig{})
+        .withSubcommands(&.{flash.cmd("greet", (flash.CommandConfig{})
+            .withAbout("Print a greeting")
+            .withArgs(&.{flash.arg("name", (flash.ArgumentConfig{})
+                .withHelp("Who to greet")
+                .setRequired())})
+            .withHandler(greet))}));
+    try cli.runWithInit(init);
 }
 ```
 
-### Async CLI
+### Test a CLI
+
 ```zig
-async fn asyncHandler(ctx: flash.Context) !void {
-    const files = ctx.getMany("files").?;
-
-    var file_ops = flash.async_cli.AsyncFileOps.init(ctx.allocator);
-    defer file_ops.deinit();
-
-    const results = try file_ops.readFiles(files);
-    // Process results...
-}
-```
-
-### With Validation
-```zig
-flash.arg("port", .{
-    .help = "Port number",
-    .required = true,
-    .validator = flash.validation.portInRange(1024, 65535),
-})
-```
-
-### With Testing
-```zig
-test "command execution" {
-    var harness = flash.testing.TestHarness.init(std.testing.allocator);
+test "help output" {
+    var harness = flash.Testing.TestHarness.init(std.testing.allocator);
     defer harness.deinit();
 
-    const result = try harness.execute(MyCLI, &.{"greet", "World"});
+    const result = try harness.execute(App, &.{ "myapp", "--help" });
     defer result.deinit();
 
     try result.expectExitCode(0);
-    try result.expectStdoutContains("Hello, World!");
+    try result.expectStdoutContains("Example Flash application");
 }
 ```
 
-## 🔗 Related Documentation
+### Generate Completions
 
-- [Getting Started Guide](../guides/getting-started.md)
-- [Architecture Overview](../architecture/cli-structure.md)
-- [Async Development Guide](../guides/async-cli.md)
+```zig
+var cli = App.init(allocator, root_config);
+try cli.generateCompletion(std.io.getStdOut().writer(), "bash");
+```
+
+### Parse Config Files
+
+```zig
+const parser = flash.Config.ConfigParser.init(allocator, .toml);
+const cfg = try parser.parse(MyConfig, toml_source);
+```
+
+## Public API Pointers
+
+- [CLI Module](cli.md)
+- [Getting Started](../guides/getting-started.md)
+- [Completions Guide](../guides/completions.md)
+- [Flash + Flare Guide](../guides/flash-flare.md)
 - [Examples](../examples/)
-- [Tutorials](../tutorials/)
-
----
-
-*Complete API documentation for building lightning-fast CLI applications with Flash.*

@@ -88,7 +88,7 @@ pub const ArgValue = union(ArgType) {
             else => @panic("Value is not a boolean"),
         };
     }
-    
+
     pub fn asArray(self: ArgValue) []ArgValue {
         return switch (self) {
             .array => |a| a,
@@ -104,6 +104,7 @@ pub const ArgumentConfig = struct {
     default: ?ArgValue = null,
     short: ?u8 = null, // Single character short flag
     long: ?[]const u8 = null, // Long flag name
+    aliases: []const []const u8 = &.{},
     multiple: bool = false, // Can be specified multiple times
     hidden: bool = false, // Hidden from help
     validator: ?*const fn (ArgValue) Error.FlashError!void = null,
@@ -136,6 +137,12 @@ pub const ArgumentConfig = struct {
     pub fn withLong(self: ArgumentConfig, long: []const u8) ArgumentConfig {
         var config = self;
         config.long = long;
+        return config;
+    }
+
+    pub fn withAliases(self: ArgumentConfig, aliases: []const []const u8) ArgumentConfig {
+        var config = self;
+        config.aliases = aliases;
         return config;
     }
 
@@ -256,12 +263,28 @@ pub const Argument = struct {
         return self.config.help;
     }
 
+    /// Check if this argument is hidden from user-facing output
+    pub fn isHidden(self: Argument) bool {
+        return self.config.hidden;
+    }
+
+    /// Check if this argument is exposed as an option rather than a positional value
+    pub fn isOption(self: Argument) bool {
+        return self.config.short != null or self.config.long != null or self.config.aliases.len > 0;
+    }
+
     /// Check if this argument matches a flag name
     pub fn matchesFlag(self: Argument, flag: []const u8) bool {
         if (flag.len == 1) {
             return self.config.short != null and self.config.short.? == flag[0];
         } else {
-            return self.config.long != null and std.mem.eql(u8, self.config.long.?, flag);
+            if (self.config.long != null and std.mem.eql(u8, self.config.long.?, flag)) {
+                return true;
+            }
+            for (self.config.aliases) |alias| {
+                if (std.mem.eql(u8, alias, flag)) return true;
+            }
+            return false;
         }
     }
 

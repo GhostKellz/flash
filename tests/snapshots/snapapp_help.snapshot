@@ -1,0 +1,27 @@
+⚡ snapapp 0.4.0 - Snapshot application
+
+USAGE:
+    snapapp [OPTIONS] [format] <COMMAND>
+
+ARGUMENTS:
+    format
+        Output format
+        Choices: json, toml
+
+OPTIONS:
+    -v, --verbose
+        Enable verbose output
+    -h, --help
+        Print help information
+    -V, --version
+        Print version information
+
+COMMANDS:
+    serve
+        Run the server
+    help
+        Show help information
+    version
+        Show version information
+    completion
+        Generate shell completion scripts
